@@ -1,0 +1,13 @@
+disease_id,disease_name,disease_category
+1,COVID-19,Infectious
+2,Influenza,Infectious
+3,Tuberculosis,Infectious
+4,Dengue,Vector-Borne
+5,Malaria,Vector-Borne
+6,Chikungunya,Vector-Borne
+7,Cholera,Water-Borne
+8,Typhoid,Water-Borne
+9,Rabies,Zoonotic
+10,Nipah Virus,Zoonotic
+11,Diabetes,Non-Communicable
+12,Hypertension,Non-Communicable
