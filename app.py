@@ -59,7 +59,11 @@ _original_plotly_chart = st.plotly_chart
 
 def _bold_black_axes_plotly_chart(figure_or_data=None, *args, **kwargs):
     try:
-        fig = figure_or_data if figure_or_data is not None else kwargs.get("figure_or_data")
+        # Pop figure_or_data from kwargs if it was passed as keyword to avoid
+        # passing it twice (positionally + as keyword) when forwarding below.
+        if figure_or_data is None:
+            figure_or_data = kwargs.pop("figure_or_data", None)
+        fig = figure_or_data
         if fig is not None and hasattr(fig, "update_xaxes"):
             _bold_axis_font = dict(color="#000000", family="Arial Black, Arial, sans-serif")
             fig.update_xaxes(tickfont={**_bold_axis_font, "size": 12}, title_font={**_bold_axis_font, "size": 13})

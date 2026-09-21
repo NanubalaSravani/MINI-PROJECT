@@ -31,7 +31,7 @@ from reportlab.platypus import (
 NAVY = "#17324D"
 TEAL = "#0F6B78"
 TEXT = "#000000"
-MUTED = "#000000"
+MUTED = "#5A6A7A"
 
 
 def _fig_to_image(fig, width_cm=16.5):

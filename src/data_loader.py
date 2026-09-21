@@ -142,7 +142,7 @@ def apply_common_filters(
 ) -> pd.DataFrame:
     """Apply the sidebar filter selections to any joined master table."""
     out = df.copy()
-    if states:
+    if states and "state_name" in out.columns:
         out = out[out["state_name"].isin(states)]
     if regions and "region" in out.columns:
         out = out[out["region"].isin(regions)]

@@ -30,28 +30,42 @@ from src.styling import inject_css, page_header, kpi_card, section_title, ACCENT
 from src.pdf_report import build_pdf_report
 
 # --- Admin credentials -------------------------------------------------
-# Demo-only login: 10 sample admin accounts stored in
+# Passwords are stored as SHA-256(salt + password) hashes in
 # data/admin_credentials.csv (columns: admin_id, full_name, username,
-# password, department). Real deployments should replace this with
-# proper auth (hashed passwords, env-var secrets, SSO, etc.) — this is
-# intentionally simple since the goal here is a shared login gate for the
-# Admin Data Manager Portal and Human Review tabs, not production identity
-# management.
+# password_hash, salt, department). The file is excluded from Git via
+# .gitignore — never commit credentials to version control.
+# Real deployments should use SSO / OAuth / Streamlit Secrets.
 ADMIN_CREDENTIALS_PATH = "data/admin_credentials.csv"
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)  # re-read at most every 5 min
 def _load_admin_credentials():
     if os.path.exists(ADMIN_CREDENTIALS_PATH):
         return pd.read_csv(ADMIN_CREDENTIALS_PATH)
-    return pd.DataFrame(columns=["admin_id", "full_name", "username", "password", "department"])
+    return pd.DataFrame(columns=["admin_id", "full_name", "username", "password_hash", "salt", "department"])
 
 
 def _authenticate_admin(username: str, password: str):
-    """Returns the matching admin row (as a dict) if credentials are valid, else None."""
+    """Returns the matching admin row (as a dict) if credentials are valid, else None.
+    Compares the supplied password against SHA-256(salt + password) stored in the CSV.
+    """
+    import hashlib
     admins = _load_admin_credentials()
-    match = admins[(admins["username"] == username) & (admins["password"].astype(str) == password)]
-    return match.iloc[0].to_dict() if not match.empty else None
+    user_rows = admins[admins["username"] == username]
+    if user_rows.empty:
+        return None
+    row = user_rows.iloc[0]
+    # Support both hashed (new) and plaintext (legacy) credential files.
+    if "password_hash" in admins.columns and "salt" in admins.columns:
+        salt = str(row["salt"])
+        expected = hashlib.sha256((salt + password).encode()).hexdigest()
+        if expected == str(row["password_hash"]):
+            return row.to_dict()
+    elif "password" in admins.columns:
+        # Legacy plaintext fallback (not recommended for production)
+        if str(row["password"]) == password:
+            return row.to_dict()
+    return None
 
 
 def render_admin_login_form(form_key: str):
@@ -103,25 +117,31 @@ REVIEW_STAGE_COLOR = {"Pending Review": "#C43D3D", "Reviewed": "#C98A00", "Appro
 REVIEW_STAGE_NEXT_LABEL = {"Pending Review": "🔎 Mark as Reviewed", "Reviewed": "✅ Approve"}
 
 
-def _get_review_db_connection():
+def _ensure_review_db():
+    """Create the review_log table if it doesn't already exist."""
     os.makedirs(os.path.dirname(REVIEW_DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(REVIEW_DB_PATH, check_same_thread=False)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS review_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            admin_username TEXT,
-            admin_full_name TEXT,
-            file_name TEXT NOT NULL,
-            file_hash TEXT,
-            status TEXT NOT NULL,
-            comment TEXT
+    with sqlite3.connect(REVIEW_DB_PATH, check_same_thread=False) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                admin_username TEXT,
+                admin_full_name TEXT,
+                file_name TEXT NOT NULL,
+                file_hash TEXT,
+                status TEXT NOT NULL,
+                comment TEXT
+            )
+            """
         )
-        """
-    )
-    conn.commit()
-    return conn
+        conn.commit()
+
+
+def _get_review_db_connection():
+    """Return an open SQLite connection (caller is responsible for closing it)."""
+    _ensure_review_db()
+    return sqlite3.connect(REVIEW_DB_PATH, check_same_thread=False)
 
 
 def _migrate_legacy_json_log_once():
@@ -129,72 +149,70 @@ def _migrate_legacy_json_log_once():
     database is still empty, import its entries so history isn't lost."""
     if not os.path.exists(UPLOAD_REVIEW_LOG_PATH_LEGACY_JSON):
         return
-    conn = _get_review_db_connection()
-    existing_count = conn.execute("SELECT COUNT(*) FROM review_log").fetchone()[0]
-    if existing_count == 0:
-        try:
-            with open(UPLOAD_REVIEW_LOG_PATH_LEGACY_JSON, "r") as f:
-                legacy_entries = json.load(f)
-            for entry in legacy_entries:
-                conn.execute(
-                    """INSERT INTO review_log
-                       (timestamp, admin_username, admin_full_name, file_name, file_hash, status, comment)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        entry.get("timestamp", ""),
-                        entry.get("admin_username", entry.get("admin", "")),
-                        entry.get("admin", ""),
-                        entry.get("file_name", ""),
-                        entry.get("file_hash", ""),
-                        entry.get("status", ""),
-                        entry.get("comment", ""),
-                    ),
-                )
-            conn.commit()
-        except Exception:
-            pass
-    conn.close()
+    try:
+        with _get_review_db_connection() as conn:
+            existing_count = conn.execute("SELECT COUNT(*) FROM review_log").fetchone()[0]
+            if existing_count == 0:
+                with open(UPLOAD_REVIEW_LOG_PATH_LEGACY_JSON, "r") as f:
+                    legacy_entries = json.load(f)
+                for entry in legacy_entries:
+                    conn.execute(
+                        """INSERT INTO review_log
+                           (timestamp, admin_username, admin_full_name, file_name, file_hash, status, comment)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            entry.get("timestamp", ""),
+                            entry.get("admin_username", entry.get("admin", "")),
+                            entry.get("admin", ""),
+                            entry.get("file_name", ""),
+                            entry.get("file_hash", ""),
+                            entry.get("status", ""),
+                            entry.get("comment", ""),
+                        ),
+                    )
+                conn.commit()
+    except Exception as exc:
+        import sys
+        print(f"[HealthSentinel] Warning: legacy review log migration failed: {exc}", file=sys.stderr)
 
 
 def _append_upload_review_log(entry: dict):
-    conn = _get_review_db_connection()
-    conn.execute(
-        """INSERT INTO review_log
-           (timestamp, admin_username, admin_full_name, file_name, file_hash, status, comment)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (
-            entry.get("timestamp", ""),
-            entry.get("admin_username", ""),
-            entry.get("admin", ""),
-            entry.get("file_name", ""),
-            entry.get("file_hash", ""),
-            entry.get("status", ""),
-            entry.get("comment", ""),
-        ),
-    )
-    conn.commit()
-    conn.close()
+    with _get_review_db_connection() as conn:
+        conn.execute(
+            """INSERT INTO review_log
+               (timestamp, admin_username, admin_full_name, file_name, file_hash, status, comment)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                entry.get("timestamp", ""),
+                entry.get("admin_username", ""),
+                entry.get("admin", ""),
+                entry.get("file_name", ""),
+                entry.get("file_hash", ""),
+                entry.get("status", ""),
+                entry.get("comment", ""),
+            ),
+        )
+        conn.commit()
 
 
 def _load_upload_review_log(file_name: str = None, file_hash: str = None):
     """Returns review log rows (as dicts), optionally filtered to a
     specific file (by name, or name+hash to disambiguate re-uploads that
     share a filename but have different content)."""
-    conn = _get_review_db_connection()
-    if file_name and file_hash:
-        cur = conn.execute(
-            "SELECT * FROM review_log WHERE file_name = ? AND file_hash = ? ORDER BY id ASC",
-            (file_name, file_hash),
-        )
-    elif file_name:
-        cur = conn.execute(
-            "SELECT * FROM review_log WHERE file_name = ? ORDER BY id ASC", (file_name,)
-        )
-    else:
-        cur = conn.execute("SELECT * FROM review_log ORDER BY id ASC")
-    cols = [d[0] for d in cur.description]
-    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    conn.close()
+    with _get_review_db_connection() as conn:
+        if file_name and file_hash:
+            cur = conn.execute(
+                "SELECT * FROM review_log WHERE file_name = ? AND file_hash = ? ORDER BY id ASC",
+                (file_name, file_hash),
+            )
+        elif file_name:
+            cur = conn.execute(
+                "SELECT * FROM review_log WHERE file_name = ? ORDER BY id ASC", (file_name,)
+            )
+        else:
+            cur = conn.execute("SELECT * FROM review_log ORDER BY id ASC")
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
     return rows
 
 
@@ -536,7 +554,11 @@ with tab_analysis:
 # =====================================================================
 with tab_admin:
     st.write("### 🗄️ Save & Append Uploaded Datasets directly to Database")
-    st.caption("Perform direct file operations on the `data/` folder and dynamically reload the active cache.")
+    st.caption("Admin login required. Perform direct file operations on the `data/` folder and dynamically reload the active cache.")
+
+    # --- Login gate (Issue #2 fix: portal was previously open to everyone) ---
+    if not render_admin_login_form("admin_login_form_portal"):
+        st.stop()
 
     uploaded_admin = st.file_uploader(
         "Upload a dataset to update/save",
@@ -557,29 +579,33 @@ with tab_admin:
             options=list(TARGET_FILES.keys()),
             key="admin_target_select"
         )
-    
+
         target_filename = TARGET_FILES[target_select]
-    
-        # If new custom filename
+
+        # If new custom filename — strip path components to prevent traversal
         custom_name = ""
         if target_filename == "custom":
-            custom_name = st.text_input("Enter filename (e.g. fact_vaccinations_cleaned.csv)", value="fact_custom_dataset.csv")
-            target_filename = custom_name.strip()
-        
+            raw_name = st.text_input("Enter filename (e.g. fact_vaccinations_cleaned.csv)", value="fact_custom_dataset.csv")
+            # Issue #3 fix: use Path.name to strip any directory traversal (e.g. ../../app.py)
+            import pathlib
+            safe_name = pathlib.Path(raw_name.strip()).name
+            if safe_name != raw_name.strip():
+                st.warning(f"⚠️ Filename sanitized to `{safe_name}` — directory traversal components removed.")
+            custom_name = safe_name
+            target_filename = custom_name
+
         if target_filename:
             st.write(f"**Target file:** `data/{target_filename}`")
-        
+
             # Validation block
             validation_success = False
-            # Check if target file has a registered expected schema
             registered_filename = custom_name if target_select == "Upload New / Custom Dataset" else target_filename
             if target_select != "Upload New / Custom Dataset" and target_filename in EXPECTED_COLUMNS:
                 expected_cols = EXPECTED_COLUMNS[target_filename]
                 uploaded_cols = df_admin.columns.tolist()
-            
+
                 missing = [c for c in expected_cols if c not in uploaded_cols]
-                extra = [c for c in uploaded_cols if c not in expected_cols]
-            
+
                 if not missing:
                     st.markdown(
                         f"""
@@ -610,17 +636,16 @@ with tab_admin:
             write_mode = st.radio("Operation Mode", ["Append to Existing (Merge)", "Overwrite Existing (Replace)"])
 
             if st.button("💾 Save & Update Dashboards", type="primary"):
-                target_path = os.path.join("data", target_filename)
+                import pathlib as _pl
+                target_path = _pl.Path("data") / pathlib.Path(target_filename).name
 
                 try:
-                    if write_mode == "Overwrite Existing (Replace)" or not os.path.exists(target_path):
+                    if write_mode == "Overwrite Existing (Replace)" or not target_path.exists():
                         df_admin.to_csv(target_path, index=False)
                         st.success(f"Successfully wrote {len(df_admin)} rows to `data/{target_filename}` (Overwritten).")
                     else:
                         existing_df = pd.read_csv(target_path)
-                        # Append
                         combined_df = pd.concat([existing_df, df_admin], ignore_index=True)
-                        # Remove duplicates based on standard primary key if exists
                         pk = "outbreak_id" if "outbreak_id" in combined_df.columns else "fact_id"
                         if pk in combined_df.columns:
                             combined_df.drop_duplicates(subset=[pk], keep="last", inplace=True)
@@ -629,7 +654,7 @@ with tab_admin:
                         combined_df.to_csv(target_path, index=False)
                         st.success(f"Successfully merged data. Total rows in database: {len(combined_df)}")
 
-                    # Clear Streamlit's cache
+                    # Clear Streamlit's cache so dashboards reload fresh data
                     st.cache_data.clear()
                     st.info("🔄 Streamlit cache invalidated. Dashboards will reload the clean data on next view.")
 

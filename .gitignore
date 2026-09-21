@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# Sensitive / generated data files — NEVER commit credentials or local state
+data/admin_credentials.csv
+data/review_history.db
+data/upload_review_log.json
+data/outbreak_alert_queue_state.json
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
