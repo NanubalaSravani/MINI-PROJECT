@@ -19,6 +19,8 @@ from src.styling import (
     filter_bar_header, insight_banner, HOTSPOT_SCALE, PIE_SEVERITY,
 )
 from src.report_generator import add_sidebar_report_button
+from src.ml_models import generate_advanced_forecast, detect_anomalies, train_risk_driver_model
+
 
 # ==========================================
 # 1. THEME AND LAYOUT CONFIGURATION
@@ -506,81 +508,21 @@ with st.container(border=True):
         unsafe_allow_html=True,
     )
 
-st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+# ==========================================
+# 6. ADVANCED PREDICTIVE FORECAST & ANOMALY DETECTION
+# ==========================================
+# Detect statistical anomalies and outbreak spikes across the dataset
+anomaly_df = detect_anomalies(filtered_df, z_threshold=2.0)
+critical_spikes = anomaly_df[anomaly_df["anomaly_severity"] == "Critical Spike"]
+warning_spikes = anomaly_df[anomaly_df["anomaly_severity"] == "Warning Spike"]
 
 # ==========================================
-# 6. IN-MEMORY ARIMA FORECAST GENERATOR
+# 7. TABS LAYOUT: MONITORING | FORECASTING | ANOMALY DETECTION | DECISION ANALYTICS
 # ==========================================
-@st.cache_data
-def generate_dynamic_forecast(data):
-    if data.empty:
-        return pd.DataFrame(columns=["Month", "Actual_Cases"]), pd.DataFrame(columns=["Month", "Forecast_Cases"])
-
-    # Ensure full_date is parsed
-    ts_data = data.copy()
-    ts_data = ts_data.dropna(subset=["year_month", "historical_cases"])
-    
-    monthly = (
-        ts_data.groupby("year_month")["historical_cases"]
-        .sum()
-        .reset_index()
-    )
-    # Parse month dates
-    monthly["Month"] = pd.to_datetime(monthly["year_month"] + "-01", format="%Y-%m-%d", errors="coerce")
-    monthly = monthly.dropna(subset=["Month"]).sort_values("Month")
-    monthly = monthly[["Month", "historical_cases"]].copy()
-    monthly.rename(columns={"historical_cases": "Actual_Cases"}, inplace=True)
-    
-    if len(monthly) < 4:
-        # Fallback for sparse history
-        last_val = monthly["Actual_Cases"].iloc[-1] if not monthly.empty else 0
-        forecast_dates = pd.date_range(
-            start=(monthly["Month"].iloc[-1] if not monthly.empty else pd.Timestamp.now()) + pd.DateOffset(months=1),
-            periods=6,
-            freq="MS"
-        )
-        forecast_df = pd.DataFrame({
-            "Month": forecast_dates,
-            "Forecast_Cases": [int(last_val)] * 6
-        })
-        return monthly, forecast_df
-        
-    ts = monthly.set_index("Month")
-    ts["log_cases"] = np.log(ts["Actual_Cases"] + 1)
-    
-    try:
-        model = ARIMA(ts["log_cases"], order=(1, 1, 1))
-        model_fit = model.fit()
-        log_forecast = model_fit.forecast(steps=6)
-        forecast_values = np.exp(log_forecast) - 1
-        forecast_values = np.maximum(forecast_values, 0)
-    except Exception:
-        # Fallback to simple average baseline if ARIMA fails
-        forecast_values = np.array([ts["Actual_Cases"].iloc[-3:].mean()] * 6)
-        
-    last_date = ts.index[-1]
-    forecast_dates = pd.date_range(
-        start=last_date + pd.DateOffset(months=1),
-        periods=6,
-        freq="MS"
-    )
-    forecast_df = pd.DataFrame({
-        "Month": forecast_dates,
-        "Forecast_Cases": forecast_values
-    })
-    forecast_df["Forecast_Cases"] = forecast_df["Forecast_Cases"].round(0).astype(int)
-    
-    return monthly.reset_index(drop=True), forecast_df
-
-# Generate dynamic ARIMA forecasts
-history, forecast = generate_dynamic_forecast(filtered_df)
-
-# ==========================================
-# 7. TABS LAYOUT: MONITORING | FORECASTING | DECISION ANALYTICS
-# ==========================================
-tab_mon, tab_fcst, tab_dec, tab_queue = st.tabs([
+tab_mon, tab_fcst, tab_anom, tab_dec, tab_queue = st.tabs([
     " Monitoring Summary",
-    " Predictive Forecasting",
+    " Predictive Forecasting & ML",
+    " Outbreak Anomaly & Spikes",
     " Decision Support Platform",
     " Alert Response Queue",
 ])
@@ -720,58 +662,125 @@ with tab_mon:
             st.plotly_chart(fig_disease_bar, use_container_width=True)
 
 # ------------------------------------------
-# TAB 2: PREDICTIVE FORECASTING
+# TAB 2: PREDICTIVE FORECASTING & MACHINE LEARNING
 # ------------------------------------------
 with tab_fcst:
-    st.markdown('<div class="section-title">ARIMA Predictive Modeling</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-caption">ARIMA(1,1,1) model projections for case velocities</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Multi-Model Predictive Forecasting</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-caption">Advanced time-series projections with 80% & 95% confidence intervals and validation error metrics.</div>', unsafe_allow_html=True)
     
+    # Model Controls
+    fc_ctrl1, fc_ctrl2 = st.columns([2, 2])
+    with fc_ctrl1:
+        selected_model = st.selectbox(
+            "Forecasting Algorithm",
+            options=["ARIMA", "Holt-Winters", "Linear Trend"],
+            index=0,
+            help="ARIMA: Auto-Regressive Integrated Moving Average (log scale). Holt-Winters: Double exponential smoothing with trend damping. Linear: Baseline slope model."
+        )
+    with fc_ctrl2:
+        forecast_horizon = st.slider(
+            "Projection Horizon (Months Ahead)",
+            min_value=3,
+            max_value=12,
+            value=6,
+            step=1,
+        )
+
+    # Generate dynamic forecast based on user selection
+    history, forecast, model_metrics = generate_advanced_forecast(filtered_df, model_type=selected_model, horizon=forecast_horizon)
+
     # Summary of metrics for the forecast
-    f_total_cases = int(history["Actual_Cases"].sum())
+    f_total_cases = int(history["Actual_Cases"].sum()) if not history.empty else 0
     f_peak_cases = int(history["Actual_Cases"].max()) if not history.empty else 0
     f_latest_cases = int(history["Actual_Cases"].iloc[-1]) if not history.empty else 0
-    f_projection = int(forecast["Forecast_Cases"].sum())
+    f_projection = int(forecast["Forecast_Cases"].sum()) if not forecast.empty else 0
     
     fc1, fc2, fc3, fc4 = st.columns(4)
     fc1.metric("Historical Cases (36 Mo)", f"{f_total_cases:,}")
     fc2.metric("Peak Month Cases", f"{f_peak_cases:,}")
     fc3.metric("Latest Month Cases", f"{f_latest_cases:,}")
-    fc4.metric("6-Month Projected Cases", f"{f_projection:,}")
+    fc4.metric(f"{forecast_horizon}-Month Projected Cases", f"{f_projection:,}")
     
-    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     
+    # Accuracy Scorecard
+    with st.container(border=True):
+        m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+        m_c1.markdown(f"**Selected Model:** `{selected_model}`")
+        m_c2.markdown(f"**Mean Absolute Error (MAE):** `±{model_metrics.get('mae', 0):,} cases`")
+        m_c3.markdown(f"**Mean Abs. Pct Error (MAPE):** `{model_metrics.get('mape', 0):.1f}%`")
+        m_c4.markdown(f"**Validation Fit:** <span style='color:{GREEN}; font-weight:bold;'>{model_metrics.get('model_fit_score', 'Good')}</span>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
     col_f1, col_f2 = st.columns([3, 2])
     with col_f1:
         with st.container(border=True):
-            st.markdown('<h4>ARIMA Trend Model (6-Mo Outlook)</h4>', unsafe_allow_html=True)
+            st.markdown(f'<h4>{selected_model} Trajectory with Confidence Intervals</h4>', unsafe_allow_html=True)
         
-            fig_arima = go.Figure()
-            fig_arima.add_trace(go.Scatter(
-                x=history["Month"], y=history["Actual_Cases"], mode="lines+markers",
-                name="Historical Cases", line=dict(color=TEAL, width=2.5),
-                marker=dict(size=6, color=PRIMARY_NAVY)
-            ))
-            fig_arima.add_trace(go.Scatter(
-                x=forecast["Month"], y=forecast["Forecast_Cases"], mode="lines+markers",
-                name="Projected Cases", line=dict(color=AMBER, width=2.5, dash="dash"),
-                marker=dict(size=6, symbol="diamond", color=RED)
-            ))
-            apply_plotly_styling(fig_arima, xlabel="Date", ylabel="Cases")
-            fig_arima.update_xaxes(rangeslider_visible=True)
-            st.plotly_chart(fig_arima, use_container_width=True)
+            fig_forecast = go.Figure()
+
+            # 95% Confidence Interval Band (Lower to Upper)
+            if not forecast.empty and "Upper_95" in forecast.columns:
+                fig_forecast.add_trace(go.Scatter(
+                    x=pd.concat([forecast["Month"], forecast["Month"][::-1]]),
+                    y=pd.concat([forecast["Upper_95"], forecast["Lower_95"][::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(196, 61, 61, 0.12)",
+                    line=dict(color="rgba(255,255,255,0)"),
+                    hoverinfo="skip",
+                    showlegend=True,
+                    name="95% Confidence Band"
+                ))
+
+                # 80% Confidence Interval Band
+                fig_forecast.add_trace(go.Scatter(
+                    x=pd.concat([forecast["Month"], forecast["Month"][::-1]]),
+                    y=pd.concat([forecast["Upper_80"], forecast["Lower_80"][::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(201, 138, 0, 0.18)",
+                    line=dict(color="rgba(255,255,255,0)"),
+                    hoverinfo="skip",
+                    showlegend=True,
+                    name="80% Confidence Band"
+                ))
+
+            # Historical Actual Cases
+            if not history.empty:
+                fig_forecast.add_trace(go.Scatter(
+                    x=history["Month"], y=history["Actual_Cases"], mode="lines+markers",
+                    name="Historical Observed", line=dict(color=TEAL, width=2.5),
+                    marker=dict(size=6, color=PRIMARY_NAVY)
+                ))
+
+            # Projected Point Forecast
+            if not forecast.empty:
+                fig_forecast.add_trace(go.Scatter(
+                    x=forecast["Month"], y=forecast["Forecast_Cases"], mode="lines+markers",
+                    name=f"{selected_model} Point Projection", line=dict(color=RED, width=2.5, dash="dash"),
+                    marker=dict(size=6, symbol="diamond", color=RED)
+                ))
+
+            apply_plotly_styling(fig_forecast, xlabel="Date", ylabel="Monthly Cases")
+            fig_forecast.update_xaxes(rangeslider_visible=True)
+            fig_forecast.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            st.plotly_chart(fig_forecast, use_container_width=True)
         
     with col_f2:
         with st.container(border=True):
-            st.markdown('<h4>Historical Growth Rate</h4>', unsafe_allow_html=True)
-            growth = history.copy()
-            growth["Growth_Rate"] = growth["Actual_Cases"].pct_change() * 100
-            growth_colors = [GREEN if x <= 0 else RED for x in growth["Growth_Rate"].fillna(0)]
-            fig_growth = go.Figure(go.Bar(
-                x=growth["Month"], y=growth["Growth_Rate"],
-                marker=dict(color=growth_colors)
-            ))
-            apply_plotly_styling(fig_growth, xlabel="Date", ylabel="Growth Rate %")
-            st.plotly_chart(fig_growth, use_container_width=True)
+            st.markdown('<h4>Historical Growth Velocity (%)</h4>', unsafe_allow_html=True)
+            if not history.empty:
+                growth = history.copy()
+                growth["Growth_Rate"] = growth["Actual_Cases"].pct_change() * 100
+                growth_colors = [GREEN if x <= 0 else RED for x in growth["Growth_Rate"].fillna(0)]
+                fig_growth = go.Figure(go.Bar(
+                    x=growth["Month"], y=growth["Growth_Rate"],
+                    marker=dict(color=growth_colors)
+                ))
+                apply_plotly_styling(fig_growth, xlabel="Date", ylabel="MoM Growth %")
+                st.plotly_chart(fig_growth, use_container_width=True)
+            else:
+                st.info("No historical growth records available for the current filter.")
         
     col_f3, col_f4 = st.columns(2)
     with col_f3:
@@ -792,7 +801,7 @@ with tab_fcst:
         
     with col_f4:
         with st.container(border=True):
-            st.markdown('<h4>Backtest Model Accuracy Trend</h4>', unsafe_allow_html=True)
+            st.markdown('<h4>Historical Forecast Accuracy Trend</h4>', unsafe_allow_html=True)
             acc_trend = filtered_df.groupby("year_month")["forecast_accuracy_pct"].mean().reset_index().sort_values("year_month")
             fig_acc = go.Figure(go.Scatter(
                 x=acc_trend["year_month"], y=acc_trend["forecast_accuracy_pct"], mode="lines+markers",
@@ -803,12 +812,145 @@ with tab_fcst:
             st.plotly_chart(fig_acc, use_container_width=True)
 
 # ------------------------------------------
-# TAB 3: DECISION SUPPORT PLATFORM
+# TAB 3: OUTBREAK ANOMALY & SPIKES (STATISTICAL SURGE DETECTION)
+# ------------------------------------------
+with tab_anom:
+    st.markdown('<div class="section-title">Statistical Anomaly & Surge Detection Engine</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-caption">Automated detection of unexpected disease surges using rolling 90-day baseline Z-scores (threshold: Z &ge; 2.0).</div>', unsafe_allow_html=True)
+    
+    # Anomaly KPIs
+    total_anomalies = int(anomaly_df["is_anomaly"].sum())
+    n_critical = len(critical_spikes)
+    n_warning = len(warning_spikes)
+    pct_anomalous = round(total_anomalies / max(1, len(anomaly_df)) * 100, 1)
+
+    ak1, ak2, ak3, ak4 = st.columns(4)
+    with ak1:
+        kpi_card("Total Flagged Surges", f"{total_anomalies:,}", color=RED, bg="#FADBD8")
+    with ak2:
+        kpi_card("Critical Spikes (Z≥3.0)", f"{n_critical:,}", color=RED, bg="#F2D7D5")
+    with ak3:
+        kpi_card("Warning Spikes (Z≥2.0)", f"{n_warning:,}", color=AMBER, bg="#FCF3CF")
+    with ak4:
+        kpi_card("Surge Incident Rate", f"{pct_anomalous}%", color=TEAL, bg="#D4EFDF")
+
+    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+
+    # Anomaly Alert Banner
+    if n_critical > 0:
+        top_crit = critical_spikes.sort_values("surge_pct", ascending=False).iloc[0]
+        st.markdown(
+            f"""
+            <div style="background-color: rgba(196, 61, 61, 0.1); border-left: 5px solid {RED}; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px;">
+                <strong style="color: {RED}; font-size: 15px;">🚨 High Severity Surge Alert: {top_crit['state_name']} · {top_crit['disease_name']}</strong><br/>
+                <span style="font-size: 13px; color: {TEXT};">
+                    Detected an abnormal spike of <strong>{int(top_crit['historical_cases']):,} cases</strong> in <strong>{top_crit['year_month']}</strong> 
+                    (baseline was <strong>{int(top_crit['baseline_cases']):,}</strong>, representing a <strong>+{top_crit['surge_pct']}%</strong> surge with <strong>Z-score = {top_crit['z_score']}</strong>).
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # Anomaly Visualizations
+    anom_c1, anom_c2 = st.columns([3, 2])
+    with anom_c1:
+        with st.container(border=True):
+            st.markdown('<h4>Surge Timeline: Observed Cases with Anomaly Flags</h4>', unsafe_allow_html=True)
+            
+            # Aggregate monthly timeline with normal vs anomaly points
+            timeline_grp = anomaly_df.groupby("year_month").agg(
+                total_cases=("historical_cases", "sum"),
+                anomalies_count=("is_anomaly", "sum")
+            ).reset_index()
+
+            fig_anom_time = go.Figure()
+            fig_anom_time.add_trace(go.Scatter(
+                x=timeline_grp["year_month"], y=timeline_grp["total_cases"],
+                mode="lines+markers",
+                name="Monthly Reported Cases",
+                line=dict(color=PRIMARY_NAVY, width=2.5),
+                marker=dict(size=5, color=PRIMARY_NAVY)
+            ))
+
+            # Mark months containing critical spikes
+            crit_months = anomaly_df[anomaly_df["anomaly_severity"] == "Critical Spike"].groupby("year_month")["historical_cases"].sum().reset_index()
+            if not crit_months.empty:
+                fig_anom_time.add_trace(go.Scatter(
+                    x=crit_months["year_month"], y=crit_months["historical_cases"],
+                    mode="markers",
+                    name="🚨 Critical Spikes",
+                    marker=dict(size=12, symbol="triangle-up", color=RED, line=dict(width=1.5, color="#000000"))
+                ))
+
+            apply_plotly_styling(fig_anom_time, xlabel="Month", ylabel="Cases")
+            fig_anom_time.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            st.plotly_chart(fig_anom_time, use_container_width=True)
+
+    with anom_c2:
+        with st.container(border=True):
+            st.markdown('<h4>Top Diseases by Frequency of Spikes</h4>', unsafe_allow_html=True)
+            spikes_by_dis = anomaly_df[anomaly_df["is_anomaly"]].groupby("disease_name").size().reset_index(name="spike_count").sort_values("spike_count", ascending=True).tail(8)
+            if not spikes_by_dis.empty:
+                fig_dis_spike = go.Figure(go.Bar(
+                    x=spikes_by_dis["spike_count"],
+                    y=spikes_by_dis["disease_name"],
+                    orientation="h",
+                    marker=dict(color=spikes_by_dis["spike_count"], colorscale="Reds"),
+                    text=spikes_by_dis["spike_count"],
+                    textposition="auto"
+                ))
+                apply_plotly_styling(fig_dis_spike, xlabel="Spike Count")
+                fig_dis_spike.update_layout(margin=dict(l=110, r=20, t=10, b=40))
+                st.plotly_chart(fig_dis_spike, use_container_width=True)
+            else:
+                st.info("No abnormal disease spikes detected under current filters.")
+
+    # Detailed Anomaly Log Table
+    with st.container(border=True):
+        st.markdown('<h4>Detected Outbreak Spike Incident Log</h4>', unsafe_allow_html=True)
+        anom_table = anomaly_df[anomaly_df["is_anomaly"]][
+            ["year_month", "state_name", "disease_name", "historical_cases", "baseline_cases", "surge_pct", "z_score", "anomaly_severity"]
+        ].sort_values("z_score", ascending=False).head(20).rename(columns={
+            "year_month": "Month",
+            "state_name": "State",
+            "disease_name": "Disease",
+            "historical_cases": "Observed Cases",
+            "baseline_cases": "90-Day Baseline",
+            "surge_pct": "Surge %",
+            "z_score": "Z-Score",
+            "anomaly_severity": "Severity"
+        })
+        st.dataframe(anom_table, use_container_width=True, hide_index=True)
+
+# ------------------------------------------
+# TAB 4: DECISION SUPPORT PLATFORM (WITH ML RISK DRIVER ANALYSIS)
 # ------------------------------------------
 with tab_dec:
-    st.markdown('<div class="section-title">Outbreak Priority Containment Matrix</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-caption">Outbreak Response priorities scored from 0-100 based on Case Velocity, Alert Level, Response Latency, and Facility Readiness.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Outbreak Priority Containment & Machine Learning Risk Drivers</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-caption">Composite priority scoring alongside Random Forest feature importances revealing the primary root drivers of alert severity.</div>', unsafe_allow_html=True)
     
+    # Train ML Risk Classifier on Outbreak Data
+    rf_insights = train_risk_driver_model(filtered_df)
+
+    if rf_insights["trained"] and not rf_insights["feature_importances"].empty:
+        with st.container(border=True):
+            st.markdown('<h4>🤖 Machine Learning Outbreak Risk Driver Analysis (Random Forest)</h4>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:12px; color:{SECONDARY_TEXT}; margin-bottom:12px;">Model trained on current surveillance events. Test Accuracy: <b>{rf_insights["accuracy"]}%</b> | F1-Score: <b>{rf_insights["f1"]}%</b>. Identifies which systemic metrics most strongly dictate escalation to High Alert.</div>', unsafe_allow_html=True)
+            
+            feat_df = rf_insights["feature_importances"]
+            fig_feat = go.Figure(go.Bar(
+                x=feat_df["Percentage"],
+                y=feat_df["Driver"],
+                orientation="h",
+                marker=dict(color=feat_df["Percentage"], colorscale="Teal"),
+                text=[f"{v:.1f}%" for v in feat_df["Percentage"]],
+                textposition="auto"
+            ))
+            apply_plotly_styling(fig_feat, xlabel="Relative Risk Influence (%)")
+            fig_feat.update_layout(margin=dict(l=180, r=20, t=10, b=40), height=260)
+            st.plotly_chart(fig_feat, use_container_width=True)
+
     # Priority table calculation
     g_prio = filtered_df.groupby("state_name").agg(
         outbreaks=("outbreak_id", "count"),

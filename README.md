@@ -1,48 +1,44 @@
-# Public Health Analytics Dashboard
+# HealthSentinel: Public Health Analytics & Epidemiological Decision Support Suite
 
-Streamlit multipage application presenting the Public Health Analytics
-dashboard suite from a single entry point, built on a star-schema data
-model (dimension + fact CSV extracts).
+A Streamlit multipage application presenting an end-to-end Public Health Analytics suite for India, built on a star-schema data model (dimension + fact CSV extracts) with integrated machine learning forecasting and generative AI copilot capabilities.
 
-`app.py` links all 5 dashboards together with a single left-hand
-navigation menu (`st.navigation`), **Executive Public Health Overview**
-loading first by default.
+`app.py` links the entire suite together with a unified left-hand navigation menu (`st.navigation`), **Home** loading first by default.
 
-| # | Dashboard | Status |
-|---|---|---|
-| 1 | Executive Public Health Overview | ✅ Built — 2 tabs: Executive Summary + Disease Surveillance |
-| 2 | Geographic & Environmental Intelligence | ⬜ Empty |
-| 3 | Laboratory & Healthcare Capacity | ⬜ Empty |
-| 4 | Outbreak Monitoring & Forecasting | ⬜ Empty |
-| 5 | Health Programs & Population Vulnerability | ⬜ Empty |
-
-Disease Surveillance content (disease-wise trends, state heatmap, outbreak
-alerts, testing/positivity) now lives **inside** the Executive Public Health
-Overview page as its own tab, sharing the same sidebar filter panel as the
-Executive Summary tab — no separate nav entry, no duplicate filters.
-
-The four empty dashboards already have their data available through
-`src/data_loader.py` (one loader function per fact table: `get_outbreak_master()`,
-`get_environmental_master()`, `get_programs_master()`, `get_lab_master()`) —
-build the visuals directly on top of that, no data plumbing needed.
+| # | Dashboard | Status | Description & Capabilities |
+|---|---|---|---|
+| 0 | Home | ✅ Built | Landing hero portal, platform mission, and dashboard navigation directory |
+| 1 | Executive Public Health Overview | ✅ Built | 2 tabs: Executive Summary + Disease Surveillance, national burden & KPIs |
+| 2 | Geographic & Environmental Intelligence | ✅ Built | Spatial risks, AQI/sanitation/rainfall correlation against epidemiological trends |
+| 3 | Laboratory & Healthcare Capacity | ✅ Built | Testing volumes, positivity rates, vaccination progress & hospital/ICU bed stress |
+| 4 | Outbreak Monitoring & Forecasting | ✅ Built | 4 tabs: Outbreak Surveillance, Multi-Model Forecasting (ARIMA/Holt-Winters with 80%/95% CI), Anomaly/Surge Detection (Z-Score), and Decision Matrix with Random Forest risk driver classification |
+| 5 | Health Programs & Population Vulnerability | ✅ Built | Health program coverage, beneficiary reach, and demographic vulnerability indices |
+| 6 | Upload & Custom Analysis | ✅ Built | Authenticated data ingestion portal, strict schema validation, SQLite review log, and automated PDF report generation |
+| 7 | Ask Sentinel (AI Copilot) | ✅ Built | Offline-grounded natural language epidemiological Q&A, optional Gemini LLM reasoning, and one-click Executive Situation Report (SITREP) generator |
 
 ## Project Structure
 
 ```
 dashboard/
-├── app.py                                              # Entry point — wires all 5 dashboards into one nav menu
+├── app.py                                              # Main entry point — wires all dashboards into unified st.navigation
 ├── dashboards/
-│   ├── 0_Executive_Public_Health_Overview.py           # ✅ Built — 2 tabs: Executive Summary + Disease Surveillance
-│   ├── 1_Geographic_Environmental_Intelligence.py      # ⬜ Empty placeholder
-│   ├── 2_Laboratory_Healthcare_Capacity.py             # ⬜ Empty placeholder
-│   ├── 3_Outbreak_Monitoring_Forecasting.py            # ⬜ Empty placeholder
-│   └── 4_Health_Programs_Population_Vulnerability.py   # ⬜ Empty placeholder
+│   ├── 00_Home.py                                      # Landing hero page & dashboard directory
+│   ├── 0_Executive_Public_Health_Overview.py           # Executive Summary + Disease Surveillance
+│   ├── 1_Geographic_Environmental_Intelligence.py      # Spatial & environmental risk analytics
+│   ├── 2_Laboratory_Healthcare_Capacity.py             # Lab testing, positivity, ICU & bed capacity
+│   ├── 3_Outbreak_Monitoring_Forecasting.py            # Outbreak tracking, ARIMA/Holt-Winters, Anomaly detection, ML risk drivers
+│   ├── 4_Health_Programs_Population_Vulnerability.py   # Health scheme coverage & vulnerability scoring
+│   ├── 5_Upload_Custom_Analysis.py                     # Secure upload portal, custom review, automated PDF export
+│   └── 6_Ask_Sentinel_AI.py                            # Natural language query copilot & automated SITREP generator
 ├── src/
-│   ├── data_loader.py             # Cached CSV loading + star-schema joins (all 5 fact tables ready)
+│   ├── data_loader.py             # Cached CSV loading + star-schema joins
+│   ├── ml_models.py               # Time-series forecasting, surge detection, RF feature importance
+│   ├── ai_copilot.py              # Natural language synthesis & Executive SITREP generator
+│   ├── report_generator.py        # PDF & analytical report generation logic
 │   ├── filters.py                 # Shared sidebar filter panel
 │   ├── kpis.py                    # KPI calculation logic (unit-testable)
-│   └── styling.py                 # Shared CSS + reusable UI components
-├── data/                          # Cleaned CSV extracts (dim_*, fact_*)
+│   └── styling.py                 # Shared CSS, theme tokens, & reusable UI components
+├── data/                          # Cleaned CSV extracts (dim_*, fact_*) & audit logs
+├── assets/                        # Logos, icons, and hero graphics
 ├── .streamlit/
 │   └── config.toml                # Corporate theme configuration
 ├── requirements.txt

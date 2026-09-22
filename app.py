@@ -121,6 +121,10 @@ upload_custom_analysis = st.Page(
     "dashboards/5_Upload_Custom_Analysis.py",
     title="Upload & Custom Analysis",
 )
+ask_sentinel_ai = st.Page(
+    "dashboards/6_Ask_Sentinel_AI.py",
+    title="Ask Sentinel (AI Copilot)",
+)
 
 # Flat list -> plain left-nav list, no section header, matching the existing
 # look. Add further st.Page(...) entries here for any future dashboard.
@@ -133,7 +137,9 @@ pg = st.navigation(
         outbreak_monitoring,
         health_programs_vulnerability,
         upload_custom_analysis,
+        ask_sentinel_ai,
     ]
 )
 
 pg.run()
+
