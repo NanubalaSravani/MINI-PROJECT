@@ -17,6 +17,7 @@ import pandas as pd
 from datetime import datetime
 from src.styling import inject_css, page_header, kpi_card, section_title
 from src.ai_copilot import ask_sentinel, generate_executive_sitrep
+from src.pdf_report import build_sitrep_pdf
 
 # ==========================================
 # 1. SETUP & STYLING
@@ -165,10 +166,26 @@ with tab_sitrep:
             st.markdown(sitrep_text)
 
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-        st.download_button(
-            label="📥 Download Executive SITREP (.md)",
-            data=sitrep_text,
-            file_name=f"HEALTH_SENTINEL_SITREP_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-            mime="text/markdown",
-            use_container_width=False,
-        )
+        down_col1, down_col2 = st.columns(2)
+        with down_col1:
+            try:
+                pdf_bytes = build_sitrep_pdf(sitrep_text)
+                st.download_button(
+                    label="📄 Download Official SITREP (.pdf)",
+                    data=pdf_bytes,
+                    file_name=f"HEALTH_SENTINEL_SITREP_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                )
+            except Exception as e:
+                st.error(f"Error compiling PDF: {e}")
+
+        with down_col2:
+            st.download_button(
+                label="📝 Download Briefing Markdown (.md)",
+                data=sitrep_text,
+                file_name=f"HEALTH_SENTINEL_SITREP_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )

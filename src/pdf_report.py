@@ -251,3 +251,180 @@ def build_pdf_report(
     doc.build(story)
     buf.seek(0)
     return buf.getvalue()
+
+
+def build_sitrep_pdf(sitrep_text: str) -> bytes:
+    """
+    Convert a Health Sentinel Executive Situation Report (SITREP) into
+    a professionally styled, printable PDF document.
+    """
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=1.5 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle(
+        "SitrepTitle",
+        parent=styles["Normal"],
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor(NAVY),
+        fontName="Helvetica-Bold",
+        spaceAfter=6,
+    )
+    subtitle_style = ParagraphStyle(
+        "SitrepSubtitle",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor(MUTED),
+        fontName="Helvetica",
+        spaceAfter=12,
+    )
+    h2_style = ParagraphStyle(
+        "SitrepH2",
+        parent=styles["Normal"],
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor(TEAL),
+        fontName="Helvetica-Bold",
+        spaceBefore=10,
+        spaceAfter=5,
+    )
+    body_style = ParagraphStyle(
+        "SitrepBody",
+        parent=styles["Normal"],
+        fontSize=9.5,
+        leading=14,
+        textColor=colors.HexColor("#222222"),
+        spaceAfter=6,
+    )
+    bullet_style = ParagraphStyle(
+        "SitrepBullet",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor("#1A202C"),
+        leftIndent=15,
+        spaceAfter=4,
+    )
+    callout_style = ParagraphStyle(
+        "SitrepCallout",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor(NAVY),
+        fontName="Helvetica",
+    )
+    footer_style = ParagraphStyle(
+        "SitrepFooter",
+        parent=styles["Normal"],
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor(MUTED),
+        alignment=1,  # Centered
+        spaceBefore=12,
+    )
+
+    story = []
+
+    # Title & Header
+    story.append(Paragraph("HEALTH SENTINEL: EXECUTIVE SITUATION REPORT (SITREP)", title_style))
+    story.append(Paragraph(f"Official Epidemiological Briefing · Published: {datetime.now().strftime('%d %B %Y, %H:%M UTC')}", subtitle_style))
+    story.append(HRFlowable(width="100%", color=colors.HexColor(TEAL), thickness=2))
+    story.append(Spacer(1, 10))
+
+    # Parse lines of sitrep_text
+    lines = sitrep_text.strip().split("\n")
+    in_interventions = False
+    intervention_items = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Skip main markdown title as we printed it in the custom header
+        if line.startswith("# ") and "HEALTH SENTINEL" in line.upper():
+            continue
+        
+        # Metadata lines (e.g. Report Generation Time, Operational Status)
+        if line.startswith("**Report Generation Time**") or line.startswith("**Operational Status**") or line.startswith("**Geographic Scope**"):
+            clean_meta = line.replace("**", "").replace("`", "")
+            story.append(Paragraph(f"<b>{clean_meta}</b>", body_style))
+            continue
+
+        if line == "---":
+            story.append(Spacer(1, 4))
+            story.append(HRFlowable(width="100%", color=colors.HexColor("#E2E8F0"), thickness=1))
+            story.append(Spacer(1, 6))
+            continue
+
+        # Section headers (e.g. ### 1. EXECUTIVE SUMMARY)
+        if line.startswith("### "):
+            header_text = line.replace("### ", "").strip()
+            if "MANDATED STRATEGIC INTERVENTIONS" in header_text.upper():
+                in_interventions = True
+            else:
+                in_interventions = False
+            story.append(Paragraph(header_text, h2_style))
+            continue
+
+        # Classification / Footer line
+        if "RESTRICTED" in line.upper():
+            clean_foot = line.replace("*", "").strip()
+            story.append(Spacer(1, 10))
+            story.append(HRFlowable(width="100%", color=colors.HexColor("#CBD5E1"), thickness=0.8))
+            story.append(Paragraph(clean_foot, footer_style))
+            continue
+
+        # Bullet points / Interventions
+        clean_text = line.replace("`", "")
+        # Bold replacements
+        parts = clean_text.split("**")
+        if len(parts) >= 3:
+            formatted_text = ""
+            for idx, part in enumerate(parts):
+                if idx % 2 == 1:
+                    formatted_text += f"<b>{part}</b>"
+                else:
+                    formatted_text += part
+        else:
+            formatted_text = clean_text
+
+        if line.startswith("- ") or line.startswith("* "):
+            bullet_content = formatted_text.lstrip("-* ")
+            story.append(Paragraph(f"• {bullet_content}", bullet_style))
+        elif line[0:2] in ["1.", "2.", "3.", "4.", "5."]:
+            num_content = formatted_text
+            if in_interventions:
+                intervention_items.append(num_content)
+            else:
+                story.append(Paragraph(num_content, bullet_style))
+        else:
+            story.append(Paragraph(formatted_text, body_style))
+
+    # If we collected intervention action items, format them inside a callout box
+    if intervention_items:
+        table_data = [[Paragraph(f"<b>Action Mandate {i+1}:</b> " + item[3:], callout_style)] for i, item in enumerate(intervention_items)]
+        table = Table(table_data, colWidths=[17.5 * cm])
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F0F9FF")),
+            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#0284C7")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E0F2FE")),
+            ("PADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(Spacer(1, 6))
+        story.append(table)
+        story.append(Spacer(1, 8))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.getvalue()

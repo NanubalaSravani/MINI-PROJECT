@@ -14,6 +14,7 @@ selections stay in sync between them.
 Run with:  streamlit run app.py
 """
 
+import io
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -53,6 +54,27 @@ page_header(
     "Executive Public Health Overview",
     "National disease burden, outcomes, and state performance summary",
 )
+
+# Operational Alert Banner
+try:
+    _outb_quick = get_outbreak_master()
+    if not _outb_quick.empty and "alert_level" in _outb_quick.columns:
+        _high_cnt = int((_outb_quick["alert_level"] == "High").sum())
+        _top_st = _outb_quick[_outb_quick["alert_level"] == "High"]["state_name"].value_counts().head(3).index.tolist()
+        _st_label = ", ".join(_top_st) if _top_st else "Key focal states"
+        st.markdown(
+            f"""
+            <div style="background: linear-gradient(90deg, rgba(196,61,61,0.08) 0%, rgba(201,138,0,0.06) 100%);
+                        border-left: 4px solid #C43D3D; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px;
+                        display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
+                <div>🚨 <strong>Surveillance Alert:</strong> {_high_cnt:,} active High-Alert outbreak incidents detected across India. Top containment focus: <strong>{_st_label}</strong>.</div>
+                <div style="font-weight: 600; color: #C43D3D;">Priority Level: High</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+except Exception:
+    pass
 
 # --------------------------------------------------------------------------- #
 # Filters + data (shared across both tabs)
@@ -304,6 +326,29 @@ with tab_summary:
                       "Recovery Rate": "{:.2f}%", "CFR": "{:.2f}%"})
         )
         st.dataframe(styled, use_container_width=True, height=380)
+
+        # Multi-format data export
+        exp_c1, exp_c2 = st.columns(2)
+        with exp_c1:
+            csv_data = rank.to_csv(index=True, index_label="Rank").encode("utf-8")
+            st.download_button(
+                "📥 Export CSV",
+                data=csv_data,
+                file_name="State_Rankings.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with exp_c2:
+            excel_buf = io.BytesIO()
+            with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+                rank.to_excel(writer, index=True, index_label="Rank", sheet_name="State_Rankings")
+            st.download_button(
+                "📊 Export Excel",
+                data=excel_buf.getvalue(),
+                file_name="State_Rankings.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     top_cases = rank.sort_values("Cases", ascending=False).iloc[0]

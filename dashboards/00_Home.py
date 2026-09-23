@@ -8,16 +8,63 @@ branding/hero content.
 """
 
 from pathlib import Path
-
 import streamlit as st
 
 from src.styling import inject_css
+from src.data_loader import get_outbreak_master
 
 # Note: st.set_page_config() is intentionally NOT called here — app.py
 # already calls it once, centrally, before st.navigation(). See the
 # comment in dashboards/2_Laboratory_Healthcare_Capacity.py for why.
 
 inject_css()
+
+# ==========================================
+# OPERATIONAL EMERGENCY ALERT STATUS TICKER
+# ==========================================
+try:
+    _outb_df = get_outbreak_master()
+    if not _outb_df.empty and "alert_level" in _outb_df.columns:
+        _high_alerts = _outb_df[_outb_df["alert_level"] == "High"]
+        _high_count = len(_high_alerts)
+        _top_states = _high_alerts["state_name"].value_counts().head(3).index.tolist() if "state_name" in _high_alerts.columns else []
+        _states_str = ", ".join(_top_states) if _top_states else "Multiple States"
+
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(90deg, rgba(196,61,61,0.08) 0%, rgba(201,138,0,0.06) 100%);
+                border: 1px solid rgba(196,61,61,0.3);
+                border-left: 5px solid #C43D3D;
+                border-radius: 8px;
+                padding: 12px 18px;
+                margin-bottom: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 10px;
+            ">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 1.4rem;">🚨</span>
+                    <div>
+                        <div style="font-size: 0.92rem; font-weight: 700; color: #9E1F1F; text-transform: uppercase; letter-spacing: 0.5px;">
+                            Active Operational Surveillance Advisory
+                        </div>
+                        <div style="font-size: 0.85rem; color: #17324D; margin-top: 2px;">
+                            <strong>{_high_count:,} High-Alert Outbreak Incidents</strong> active nationwide · Priority Containment Focus: <strong>{_states_str}</strong>
+                        </div>
+                    </div>
+                </div>
+                <div style="font-size: 0.8rem; background: #FFFFFF; border: 1px solid rgba(196,61,61,0.25); border-radius: 20px; padding: 4px 12px; font-weight: 600; color: #C43D3D;">
+                    ● Threat Level: Elevated
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+except Exception:
+    pass
 
 with st.sidebar:
     st.markdown("---")
@@ -37,22 +84,17 @@ with st.sidebar:
 
 _hero_path = Path(__file__).resolve().parent.parent / "assets" / "home_hero.jpg"
 try:
-    # Newer Streamlit versions (renamed the parameter; use_column_width
-    # is deprecated there but still works, just with a warning banner).
     st.image(str(_hero_path), use_container_width=True)
 except TypeError:
-    # Older Streamlit versions (this project's pinned requirements.txt,
-    # 1.38.0) don't have use_container_width on st.image() at all.
-    st.image(str(_hero_path), use_column_width=True)
+    st.image(str(_hero_path), use_container_width=True)
 
 # ==========================================
-# Explore the Dashboards — one card per page in the sidebar nav, so the
-# landing page tells people what's behind each tab before they click it.
+# Explore the Dashboards — complete directory
 # ==========================================
 st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
 st.markdown(
     '<div class="section-title">Explore the Dashboards</div>'
-    '<div class="section-caption">What you\'ll find behind each tab in the sidebar</div>',
+    '<div class="section-caption">What you\'ll find behind each tab in the navigation menu</div>',
     unsafe_allow_html=True,
 )
 
@@ -60,37 +102,44 @@ DASHBOARDS = [
     {
         "icon": "📊",
         "title": "Executive Public Health Overview",
-        "desc": "National disease burden, outcomes, and state performance summary — the "
-                "top-level view for a quick read on how the country is doing.",
+        "desc": "National disease burden, outcomes, and state performance summary — the top-level view for leadership.",
         "color": "#0F6B78",
     },
     {
         "icon": "🌍",
         "title": "Geographic & Environmental Intelligence",
-        "desc": "Connects geographic risk, environmental stressors (air quality, water "
-                "quality, climate) and disease burden to show where attention is most needed.",
+        "desc": "Connects spatial risks and environmental stressors (AQI, sanitation, rainfall) against epidemiological trends.",
         "color": "#16855B",
     },
     {
         "icon": "🧪",
         "title": "Laboratory & Healthcare Capacity",
-        "desc": "Testing volumes, positivity rates, vaccination coverage, and hospital / "
-                "ICU capacity across states, month by month.",
+        "desc": "Testing volumes, positivity rates, vaccination coverage, and critical care / ICU bed occupancy across states.",
         "color": "#17324D",
     },
     {
         "icon": "🚨",
         "title": "Outbreak Monitoring & Forecasting",
-        "desc": "Live alert levels and containment performance, plus ARIMA-based case "
-                "forecasting and a priority containment matrix for active outbreaks.",
+        "desc": "Live alert levels, ARIMA/Holt-Winters multi-model case forecasting, rolling Z-score surge detection, and ML risk drivers.",
         "color": "#C43D3D",
     },
     {
         "icon": "🤝",
         "title": "Health Programs & Population Vulnerability",
-        "desc": "Tracks public health program coverage and performance, and flags "
-                "vulnerable populations that need attention.",
+        "desc": "Tracks public health scheme reach, maternal-child immunization, and demographic vulnerability indices.",
         "color": "#C98A00",
+    },
+    {
+        "icon": "📁",
+        "title": "Upload & Custom Analysis",
+        "desc": "Authenticated ingestion portal with strict schema validation, SQLite review audit log, and automated PDF report export.",
+        "color": "#5A6A7A",
+    },
+    {
+        "icon": "🤖",
+        "title": "Ask Sentinel (AI Copilot)",
+        "desc": "Grounded natural language epidemiological Q&A, optional Gemini LLM reasoning, and one-click Executive SITREP briefing.",
+        "color": "#0F6B78",
     },
 ]
 

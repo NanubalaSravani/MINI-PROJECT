@@ -5,6 +5,7 @@ Outbreak Monitoring & Forecasting dashboard — alert levels, containment
 performance, ARIMA case forecasting, and priority containment scoring.
 """
 
+import io
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -810,6 +811,145 @@ with tab_fcst:
             ))
             apply_plotly_styling(fig_acc, xlabel="Month", ylabel="Accuracy %")
             st.plotly_chart(fig_acc, use_container_width=True)
+
+    # -------------------------------------------------------------
+    # INTERACTIVE "WHAT-IF" POLICY & INTERVENTION SIMULATION STUDIO
+    # -------------------------------------------------------------
+    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🧪 "What-If" Policy & Intervention Simulation Studio</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-caption">Simulate public health counterfactual scenarios: model the impact of aggressive containment enforcement, enhanced contact tracing, and vaccination acceleration on projected caseloads.</div>', unsafe_allow_html=True)
+
+    with st.container(border=True):
+        sim_col1, sim_col2, sim_col3 = st.columns(3)
+        with sim_col1:
+            containment_surge = st.slider(
+                "Containment & Mobility Intervention (%)",
+                min_value=0, max_value=50, value=15, step=5,
+                help="Projected case transmission dampening via localized containment, masking mandates, and rapid response team deployment."
+            )
+        with sim_col2:
+            vaccine_boost = st.slider(
+                "Immunization & Treatment Acceleration (%)",
+                min_value=0, max_value=30, value=10, step=5,
+                help="Estimated transmission attenuation through targeted vaccine/booster rollouts and prophylactic distribution."
+            )
+        with sim_col3:
+            implementation_delay = st.selectbox(
+                "Policy Implementation Delay",
+                options=["Immediate (0 weeks)", "1 Week Delay", "2 Weeks Delay", "4 Weeks Delay"],
+                index=1,
+                help="Operational latency before local interventions reach peak compliance and efficiency."
+            )
+
+        # Simulation Model Computation
+        delay_map = {"Immediate (0 weeks)": 0, "1 Week Delay": 1, "2 Weeks Delay": 2, "4 Weeks Delay": 4}
+        delay_weeks = delay_map.get(implementation_delay, 1)
+
+        sim_df = forecast.copy()
+        if not sim_df.empty:
+            total_reduction_pct = min(70, containment_surge + vaccine_boost) / 100.0
+            
+            # Apply progressive ramp-up based on delay
+            simulated_cases = []
+            for idx, base_val in enumerate(sim_df["Forecast_Cases"]):
+                # Effective weeks into projection (each month is ~4 weeks)
+                month_idx = idx + 1
+                weeks_elapsed = month_idx * 4
+                if weeks_elapsed <= delay_weeks:
+                    eff_factor = 0.0
+                else:
+                    ramp = min(1.0, (weeks_elapsed - delay_weeks) / 8.0)
+                    eff_factor = total_reduction_pct * ramp
+
+                intervened_val = max(0, int(base_val * (1.0 - eff_factor)))
+                simulated_cases.append(intervened_val)
+
+            sim_df["Simulated_Cases"] = simulated_cases
+            sim_df["Averted_Cases"] = sim_df["Forecast_Cases"] - sim_df["Simulated_Cases"]
+
+            tot_baseline = int(sim_df["Forecast_Cases"].sum())
+            tot_simulated = int(sim_df["Simulated_Cases"].sum())
+            tot_averted = max(0, tot_baseline - tot_simulated)
+            averted_pct = (tot_averted / max(1, tot_baseline)) * 100
+
+            # Simulation Metrics Row
+            sm1, sm2, sm3, sm4 = st.columns(4)
+            sm1.metric("Status Quo Projected Cases", f"{tot_baseline:,}")
+            sm2.metric("Intervention Projected Cases", f"{tot_simulated:,}")
+            sm3.metric("Projected Cases Averted", f"-{tot_averted:,}", delta=f"-{averted_pct:.1f}% Reduction", delta_color="inverse")
+            sm4.metric("Combined Policy Strength", f"{containment_surge + vaccine_boost}%", delta="Simulated Efficacy")
+
+            # Comparative Visualization
+            fig_sim = go.Figure()
+
+            # Baseline status quo forecast
+            fig_sim.add_trace(go.Scatter(
+                x=sim_df["Month"], y=sim_df["Forecast_Cases"],
+                mode="lines+markers", name=f"{selected_model} Baseline (Status Quo)",
+                line=dict(color=RED, width=2.5, dash="dash"),
+                marker=dict(size=7, color=RED)
+            ))
+
+            # Intervened trajectory
+            fig_sim.add_trace(go.Scatter(
+                x=sim_df["Month"], y=sim_df["Simulated_Cases"],
+                mode="lines+markers", name="Simulated Intervention Trajectory",
+                line=dict(color=GREEN, width=3),
+                marker=dict(size=8, symbol="diamond", color=GREEN),
+                fill="tonexty", fillcolor="rgba(22, 133, 91, 0.15)"
+            ))
+
+            # If history exists, also show recent observed trend
+            if not history.empty:
+                recent_hist = history.tail(6)
+                fig_sim.add_trace(go.Scatter(
+                    x=recent_hist["Month"], y=recent_hist["Actual_Cases"],
+                    mode="lines+markers", name="Recent Observed Baseline",
+                    line=dict(color=PRIMARY_NAVY, width=2),
+                    marker=dict(size=6, color=PRIMARY_NAVY)
+                ))
+
+            apply_plotly_styling(fig_sim, xlabel="Month", ylabel="Monthly Projected Cases")
+            fig_sim.update_layout(
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                height=380,
+            )
+            st.plotly_chart(fig_sim, use_container_width=True)
+
+            # Export Center for Forecast & Simulation
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+            exp_fc_col1, exp_fc_col2 = st.columns(2)
+            
+            # Prepare clean export table
+            export_table = sim_df.copy()
+            export_table["Month"] = export_table["Month"].dt.strftime("%Y-%m")
+            export_table = export_table.rename(columns={
+                "Month": "Projection_Month",
+                "Forecast_Cases": "Baseline_Forecast_Cases",
+                "Simulated_Cases": "Intervention_Simulated_Cases",
+                "Averted_Cases": "Projected_Averted_Cases",
+            })
+
+            with exp_fc_col1:
+                fc_csv = export_table.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📥 Export Forecast & Simulation (CSV)",
+                    data=fc_csv,
+                    file_name=f"HealthSentinel_Forecast_{selected_model}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            with exp_fc_col2:
+                fc_excel_buf = io.BytesIO()
+                with pd.ExcelWriter(fc_excel_buf, engine="openpyxl") as writer:
+                    export_table.to_excel(writer, index=False, sheet_name="Forecast_Simulation")
+                st.download_button(
+                    "📊 Export Forecast & Simulation (Excel .xlsx)",
+                    data=fc_excel_buf.getvalue(),
+                    file_name=f"HealthSentinel_Forecast_{selected_model}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
 
 # ------------------------------------------
 # TAB 3: OUTBREAK ANOMALY & SPIKES (STATISTICAL SURGE DETECTION)
