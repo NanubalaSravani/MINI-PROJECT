@@ -272,26 +272,52 @@ def ask_sentinel(query: str, api_key: Optional[str] = None) -> str:
 
             Provide actionable, professional, evidence-backed epidemiological answers formatted in clean markdown.
             """
-            
-            candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-pro"]
-            last_err = None
+
+            # 1. Dynamically discover models supported by the provided API key
+            selected_model_name = None
+            try:
+                for m in genai.list_models():
+                    if "generateContent" in getattr(m, "supported_generation_methods", []):
+                        name = m.name
+                        if "flash" in name.lower():
+                            selected_model_name = name
+                            break
+                        elif not selected_model_name:
+                            selected_model_name = name
+            except Exception:
+                selected_model_name = None
+
+            # Fallback candidate list if list_models is restricted
+            candidate_models = [selected_model_name] if selected_model_name else [
+                "gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro"
+            ]
+            candidate_models = [m for m in candidate_models if m]
+
             for mod_name in candidate_models:
                 try:
                     model = genai.GenerativeModel(mod_name)
                     res = model.generate_content(f"{system_context}\n\nUser Question: {query}")
                     if res and res.text:
                         return res.text
-                except Exception as me:
-                    last_err = me
+                except Exception:
                     continue
 
-            if last_err:
-                raise last_err
+            # If all model candidates failed, return polished notice + local engine response
+            fallback = _offline_answer_generator(query)
+            return (
+                f"*(💡 Note: The configured Gemini API key is not connected to an active model on Google AI Studio. "
+                f"Health Sentinel has automatically synthesized your answer using our local clinical intelligence engine below.)*\n\n"
+                f"{fallback}"
+            )
 
         except Exception as e:
-            # Fallback seamlessly to offline synthesis
+            # Fallback gracefully to offline synthesis
             fallback = _offline_answer_generator(query)
-            return f"*(Note: LLM API returned error: {str(e)[:70]}... using local Sentinel synthesis engine)*\n\n{fallback}"
+            return (
+                f"*(💡 Note: Gemini API offline ({str(e)[:50]}...). "
+                f"Synthesizing epidemiological records with local Sentinel engine below.)*\n\n"
+                f"{fallback}"
+            )
 
     # Default: Grounded Offline Data Intelligence Engine
     return _offline_answer_generator(query)

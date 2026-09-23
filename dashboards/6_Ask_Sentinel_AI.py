@@ -48,11 +48,16 @@ with st.sidebar:
             "Gemini API Key",
             type="password",
             placeholder="AIzaSy...",
-            help="Optional: Enter a Google Gemini API key to enable open-ended epidemiological conversational reasoning. If omitted, Sentinel's built-in offline data synthesis engine is used."
+            help="Optional: Enter a Google Gemini API key from Google AI Studio (aistudio.google.com). If omitted, Sentinel's built-in offline data synthesis engine is used."
         )
         if api_key_input:
             st.session_state["sentinel_api_key"] = api_key_input
-            st.success("API key configured!")
+            st.success("API key saved!")
+        
+        if "sentinel_api_key" in st.session_state and st.session_state["sentinel_api_key"]:
+            if st.button("❌ Remove Key (Switch to Local Engine)", use_container_width=True):
+                del st.session_state["sentinel_api_key"]
+                st.rerun()
 
 # Retrieve key from session state if set
 current_api_key = st.session_state.get("sentinel_api_key", None)
