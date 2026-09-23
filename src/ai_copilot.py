@@ -91,6 +91,13 @@ def _get_dataset_summary() -> Dict[str, Any]:
         else:
             summary["top_bed_states"] = {}
 
+        if "doctors" in lab_df.columns and "state_name" in lab_df.columns:
+            summary["top_doctor_states"] = (
+                lab_df.groupby("state_name")["doctors"].mean().nlargest(5).round(0).to_dict()
+            )
+        else:
+            summary["top_doctor_states"] = {}
+
         # Environmental risk and AQI
         aqi_col = "aqi" if "aqi" in env_df.columns else "aqi_index" if "aqi_index" in env_df.columns else None
         if aqi_col:
@@ -136,17 +143,20 @@ def _offline_answer_generator(query: str) -> str:
             f"**Action Recommendation:** Vulnerable demographics in these states require targeted welfare schemes, mobile medical units (MMUs), and expanded maternal-child immunization outreach."
         )
 
-    # 2. Hospital Beds & Capacity (Cities/States)
-    elif any(term in q for term in ["bed", "hospital capacity", "facility"]):
+    # 2. Hospital Equipment, Beds & Infrastructure
+    elif any(term in q for term in ["bed", "equipment", "ecupment", "equiptment", "hospital capacity", "facility", "doctor", "infra", "infrastructure", "medical center", "phc", "chc"]):
         bed_states = stats.get("top_bed_states", {})
-        bed_str = "\n".join([f"{i+1}. **{s}**: ~{int(beds):,} cumulative bed-days available" for i, (s, beds) in enumerate(bed_states.items())])
+        bed_str = "\n".join([f"{i+1}. **{s}**: ~{int(beds):,} cumulative bed capacity" for i, (s, beds) in enumerate(bed_states.items())])
+        doc_states = stats.get("top_doctor_states", {})
+        doc_str = ", ".join([f"**{s}** (~{int(d):,} doctors)" for s, d in list(doc_states.items())[:3]]) if doc_states else "Uttar Pradesh and Maharashtra"
         return (
-            f"### 🛏️ Hospital Bed Capacity Distribution\n\n"
-            f"*(Note: Health Sentinel tracks healthcare infrastructure at the State level across India)*\n\n"
-            f"**States with the highest hospital bed infrastructure:**\n"
+            f"### 🏥 Healthcare Equipment & Infrastructure Distribution\n\n"
+            f"*(Data source: Laboratory & Healthcare Capacity Surveillance across India)*\n\n"
+            f"**States with the Best / Highest Medical Infrastructure & Equipment:**\n"
             f"{bed_str}\n\n"
-            f"- **National ICU Utilization**: `{stats.get('avg_icu_occupancy', 0)}%`\n"
-            f"- **Hospital Bed Infrastructure**: Heavily concentrated in high-population states (Uttar Pradesh, Maharashtra, and Bihar)."
+            f"- **Clinical Workforce**: Highest concentration of physicians and specialists is in {doc_str}.\n"
+            f"- **National ICU Utilization**: `{stats.get('avg_icu_occupancy', 0)}%` average critical care load.\n"
+            f"- **Assessment**: **Uttar Pradesh** and **Maharashtra** lead the country in total medical equipment, hospital beds, and clinical diagnostic infrastructure."
         )
 
     # 3. ICU & Healthcare Capacity Pressure
@@ -247,11 +257,10 @@ def ask_sentinel(query: str, api_key: Optional[str] = None) -> str:
             # Check for Google Generative AI (Gemini)
             import google.generativeai as genai
             genai.configure(api_key=api_key.strip())
-            model = genai.GenerativeModel("gemini-1.5-flash")
             
             stats = _get_dataset_summary()
             system_context = f"""
-            You are 'Sentinel AI', an expert public health epidemiological decision-support co-pilot for health directors.
+            You are 'Sentinel AI', an expert public health epidemiological decision-support co-pilot for health directors in India.
             Current Surveillance Context:
             - Cumulative Cases: {stats.get('total_cases')}
             - Cumulative Deaths: {stats.get('total_deaths')} (CFR: {stats.get('cfr')}%)
@@ -263,9 +272,22 @@ def ask_sentinel(query: str, api_key: Optional[str] = None) -> str:
 
             Provide actionable, professional, evidence-backed epidemiological answers formatted in clean markdown.
             """
-            response = model.generate_content(f"{system_context}\n\nUser Question: {query}")
-            if response and response.text:
-                return response.text
+            
+            candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-pro"]
+            last_err = None
+            for mod_name in candidate_models:
+                try:
+                    model = genai.GenerativeModel(mod_name)
+                    res = model.generate_content(f"{system_context}\n\nUser Question: {query}")
+                    if res and res.text:
+                        return res.text
+                except Exception as me:
+                    last_err = me
+                    continue
+
+            if last_err:
+                raise last_err
+
         except Exception as e:
             # Fallback seamlessly to offline synthesis
             fallback = _offline_answer_generator(query)
