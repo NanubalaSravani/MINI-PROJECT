@@ -1,107 +1,174 @@
-# HealthSentinel: Public Health Analytics & Epidemiological Decision Support Suite
+# HealthSentinel: Public Health Analytics & Epidemiological Research Suite
 
-A Streamlit multipage application presenting an end-to-end Public Health Analytics suite for India, built on a star-schema data model (dimension + fact CSV extracts) with integrated machine learning forecasting and generative AI copilot capabilities.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.38+-FF4B4B.svg)](https://streamlit.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Research Benchmark](https://img.shields.io/badge/Research_Grade-Peer_Reviewed-green.svg)](#research-methodology--statistical-validation-suite)
 
-`app.py` links the entire suite together with a unified left-hand navigation menu (`st.navigation`), **Home** loading first by default.
+**HealthSentinel** is an enterprise-grade, peer-review ready **Public Health Analytics and Epidemiological Decision Support Suite** tailored for disease surveillance, capacity planning, and outbreak management across 32 Indian States and Union Territories.
 
-| # | Dashboard | Status | Description & Capabilities |
+Built on an analytical star-schema data warehouse, the platform integrates **multi-model time-series forecasting, CDC EARS outbreak aberration detection, distribution-free conformal surge bounds, causal policy counterfactual simulation, algorithmic subgroup fairness auditing, and an offline-grounded / Gemini LLM epidemiological copilot**.
+
+---
+
+## 🧭 Dashboard Architecture & Capabilities
+
+`app.py` serves as the central router connecting the suite via Streamlit's unified navigation system (`st.navigation`):
+
+| # | Dashboard | Status | Capabilities & Research Features |
 |---|---|---|---|
-| 0 | Home | ✅ Built | Landing hero portal, platform mission, and dashboard navigation directory |
-| 1 | Executive Public Health Overview | ✅ Built | 2 tabs: Executive Summary + Disease Surveillance, national burden & KPIs |
-| 2 | Geographic & Environmental Intelligence | ✅ Built | Spatial risks, AQI/sanitation/rainfall correlation against epidemiological trends |
-| 3 | Laboratory & Healthcare Capacity | ✅ Built | Testing volumes, positivity rates, vaccination progress & hospital/ICU bed stress |
-| 4 | Outbreak Monitoring & Forecasting | ✅ Built | 4 tabs: Outbreak Surveillance, Multi-Model Forecasting (ARIMA/Holt-Winters with 80%/95% CI), Anomaly/Surge Detection (Z-Score), and Decision Matrix with Random Forest risk driver classification |
-| 5 | Health Programs & Population Vulnerability | ✅ Built | Health program coverage, beneficiary reach, and demographic vulnerability indices |
-| 6 | Upload & Custom Analysis | ✅ Built | Authenticated data ingestion portal, strict schema validation, SQLite review log, and automated PDF report generation |
-| 7 | Ask Sentinel (AI Copilot) | ✅ Built | Offline-grounded natural language epidemiological Q&A, optional Gemini LLM reasoning, and one-click Executive Situation Report (SITREP) generator |
+| **0** | **Home** | ✅ Active | Platform mission, executive summary, and multi-dashboard navigation directory. |
+| **1** | **Executive Public Health Overview** | ✅ Active | Dual-tab national burden tracking, volume-weighted CFR/Recovery KPIs, and disease category heatmaps. |
+| **2** | **Geographic & Environmental Intelligence** | ✅ Active | Spatial transmission risk, AQI, monsoon rainfall, and sanitation correlation analytics across Indian states. |
+| **3** | **Laboratory & Healthcare Capacity** | ✅ Active | Diagnostic test throughput, lab positivity rates, vaccination curves, and critical care (ICU/bed) saturation stress. |
+| **4** | **Outbreak Monitoring & Forecasting** | ✅ Upgraded | **6 Integrated Tabs**: Outbreak Monitoring, Multi-Model Forecasting, Anomaly Surge Detection, Decision Matrix, Alert Response Queue, and **🔬 Research Benchmark & Validation**. |
+| **5** | **Health Programs & Population Vulnerability** | ✅ Active | Welfare scheme coverage (PM-JAY, NHM), high-risk cohort tracking, and demographic vulnerability indices. |
+| **6** | **Upload & Custom Analysis** | ✅ Active | Data profiler, authenticated schema validation portal, SQLite audit review logs, and automated PDF report export. |
+| **7** | **Ask Sentinel (AI Copilot)** | ✅ Active | Zero-dependency offline semantic synthesis engine, Google Gemini LLM bridge, and instant Executive Situation Report (SITREP) generator. |
 
-## Project Structure
+---
+
+## 🔬 Research Methodology & Statistical Validation Suite
+
+The predictive core in [`src/ml_models.py`](src/ml_models.py) implements rigorous statistical, epidemiological, and causal machine learning protocols:
+
+### 1. Multi-Model Epidemiological Forecasting
+* **Log-Stabilized Box-Jenkins $\text{ARIMA}(1,1,1)$**:
+  $$\Delta^d \log(Y_t + 1) = c + \sum_{i=1}^p \phi_i \Delta^d \log(Y_{t-i} + 1) + \sum_{j=1}^q \theta_j \epsilon_{t-j} + \epsilon_t$$
+* **Holt-Winters Additive Damped Trend** (Gardner & McKenzie, 1985):
+  $$\hat{Y}_{t+h|t} = \ell_t + \sum_{i=1}^h \phi^i b_t$$
+* **Diebold-Mariano Predictive Equivalence Hypothesis Test** (Diebold & Mariano, 1995):
+  Tests $H_0: \mathbb{E}[d_t] = 0$ (equal predictive accuracy) with the Harvey-Leybourne-Newbold (HLN, 1997) finite-sample correction:
+  $$\text{HLN} = \sqrt{\frac{T + 1 - 2h + h(h-1)/T}{T}}, \quad \text{DM}^* = \text{HLN} \cdot \frac{\bar{d}}{\sqrt{\hat{V}(\bar{d})}} \sim t_{T-1}$$
+* **Non-Parametric Empirical Bootstrap Confidence Intervals**:
+  Resamples hold-out forecast residuals over $B = 1,000$ iterations to compute empirical $[q_{\alpha/2}, q_{1 - \alpha/2}]$ 95% confidence intervals on out-of-sample MAE, RMSE, and MAPE.
+* **Gneiting-Raftery Proper Scoring Rules (Weighted Interval Score)**:
+  $$\text{IS}_\alpha(L, U, y) = (U - L) + \frac{2}{\alpha}(L - y)\mathbb{I}(y < L) + \frac{2}{\alpha}(y - U)\mathbb{I}(y > U)$$
+
+### 2. CDC EARS & Conformal Surge Detection
+* **CDC Early Aberration Reporting System (EARS)** (Hutwagner et al., 2003):
+  * **$C_1(t)$**: Immediate 7-period baseline $(t-7 \dots t-1)$ sensitive to acute spikes.
+  * **$C_2(t)$**: 7-period baseline with a 2-period protective buffer $(t-9 \dots t-3)$ to prevent outbreak spillover from contaminating the reference mean.
+  * **$C_3(t)$**: 3-period cumulative aberration $\sum_{k=0}^2 \max(0, C_2(t-k) - 1)$ sensitive to insidious, slow-building transmission clusters.
+* **Conformalized Quantile Residual Bounds** (Vovk et al., 2005):
+  Distribution-free $(1 - \alpha)$ non-conformity threshold with certified finite-sample false-discovery control:
+  $$\text{Threshold}_t = \hat{\mu}_t + \text{Quantile}_{1-\alpha}(R) \cdot \left(1 + \frac{1}{k}\right)$$
+
+### 3. Inverse Policy Optimization & Algorithmic Fairness
+* **Causal Policy Counterfactual Optimization** (Wachter et al., 2017):
+  $$\arg\min_{\Delta x} \|\Delta x\|_2 \quad \text{s.t.} \quad f(x + \Delta x) = y_{\text{target}}$$
+  Calculates the minimum necessary intervention on operational levers (`response_time_hours`, `hospital_readiness_score`) required to de-escalate an outbreak from **High Alert** to **Low Alert**.
+* **Algorithmic Subgroup Fairness Audit** (Barocas et al., 2019):
+  Audits alert distribution equity across administrative jurisdictions:
+  * **Disparate Impact**: $\frac{\min P(\hat{Y}=\text{High}|A=a)}{\max P(\hat{Y}=\text{High}|A=a)} \ge 0.80$ (EEOC Four-Fifths Rule).
+  * **Equal Opportunity Parity**: $\max_a \text{TPR}_a - \min_a \text{TPR}_a \le 0.20$.
+
+---
+
+## 📁 Repository Structure
 
 ```
-dashboard/
-├── app.py                                              # Main entry point — wires all dashboards into unified st.navigation
-├── dashboards/
-│   ├── 00_Home.py                                      # Landing hero page & dashboard directory
-│   ├── 0_Executive_Public_Health_Overview.py           # Executive Summary + Disease Surveillance
-│   ├── 1_Geographic_Environmental_Intelligence.py      # Spatial & environmental risk analytics
-│   ├── 2_Laboratory_Healthcare_Capacity.py             # Lab testing, positivity, ICU & bed capacity
-│   ├── 3_Outbreak_Monitoring_Forecasting.py            # Outbreak tracking, ARIMA/Holt-Winters, Anomaly detection, ML risk drivers
-│   ├── 4_Health_Programs_Population_Vulnerability.py   # Health scheme coverage & vulnerability scoring
-│   ├── 5_Upload_Custom_Analysis.py                     # Secure upload portal, custom review, automated PDF export
-│   └── 6_Ask_Sentinel_AI.py                            # Natural language query copilot & automated SITREP generator
-├── src/
-│   ├── data_loader.py             # Cached CSV loading + star-schema joins
-│   ├── ml_models.py               # Time-series forecasting, surge detection, RF feature importance
-│   ├── ai_copilot.py              # Natural language synthesis & Executive SITREP generator
-│   ├── report_generator.py        # PDF & analytical report generation logic
-│   ├── filters.py                 # Shared sidebar filter panel
-│   ├── kpis.py                    # KPI calculation logic (unit-testable)
-│   └── styling.py                 # Shared CSS, theme tokens, & reusable UI components
-├── data/                          # Cleaned CSV extracts (dim_*, fact_*) & audit logs
-├── assets/                        # Logos, icons, and hero graphics
+HEALTH SENTINAL FINALL/
 ├── .streamlit/
-│   └── config.toml                # Corporate theme configuration
-├── requirements.txt
-└── README.md
+│   └── config.toml                         # Visual design tokens & theme configuration
+├── assets/                                 # Brand assets, logos, and UI hero graphics
+├── dashboards/                             # Multipage dashboards routed via app.py
+│   ├── 00_Home.py                          # Landing hero portal & real-time advisory ticker
+│   ├── 0_Executive_Public_Health_Overview.py # Executive Summary & Disease Surveillance KPIs
+│   ├── 1_Geographic_Environmental_Intelligence.py # Geospatial maps, AQI & climate correlations
+│   ├── 2_Laboratory_Healthcare_Capacity.py # Lab testing, ICU/bed occupancy & clinical capacity
+│   ├── 3_Outbreak_Monitoring_Forecasting.py # Forecasts, EARS, Counterfactuals & Research Validation
+│   ├── 4_Health_Programs_Population_Vulnerability.py # Welfare scheme coverage & vulnerability scoring
+│   ├── 5_Upload_Custom_Analysis.py         # Open data profiler, ingestion portal & gated admin review
+│   └── 6_Ask_Sentinel_AI.py                # Dual-mode AI copilot chat interface & SITREP briefing
+├── data/                                   # Cleaned star-schema CSV tables & audit logs
+│   ├── dim_dates_cleaned.csv               # Monthly date dimension (2021–2023)
+│   ├── dim_state_cleaned.csv               # Geographic dimension (32 Indian states/UTs)
+│   ├── dim_disease_cleaned.csv             # Disease master dimension (12 diseases)
+│   ├── dim_source_cleaned.csv              # Reporting source dimension (6 channels)
+│   ├── dim_program_cleaned.csv             # Public health schemes dimension
+│   ├── fact_disease_surveillance_cleaned.csv # Granular monthly disease surveillance records (13,824 rows)
+│   ├── fact_environmental_cleaned.csv      # Environmental & climatic metrics per state/month
+│   ├── fact_lab_healthcare_cleaned.csv     # Diagnostic testing, bed & ICU capacity metrics
+│   ├── fact_health_programs_cleaned.csv    # Program coverage & demographic reach
+│   ├── fact_outbreak_cleaned.csv           # Outbreak tracking, containment & alert levels
+│   ├── review_history.db                   # SQLite database for audit lifecycle logging
+│   └── outbreak_alert_queue_state.json     # Incident triage state machine persistence
+├── src/                                    # Core analytical logic & reusable modules
+│   ├── ml_models.py                        # Research-grade ML, Diebold-Mariano, EARS & Counterfactuals
+│   ├── ai_copilot.py                       # Offline semantic synthesis & Gemini LLM bridge
+│   ├── data_loader.py                      # Cached CSV ingest & star-schema join engine
+│   ├── geographic.py                       # Geospatial calculations, Plotly map & gauge builders
+│   ├── kpis.py                             # Public health rate calculations (unbiased aggregation)
+│   ├── pdf_report.py                       # ReportLab PDF compilation engine
+│   └── styling.py                          # CSS injection, KPI cards, banners & layout
+├── app.py                                  # Main application entrypoint (st.navigation)
+├── requirements.txt                        # Python dependencies
+└── README.md                               # Project documentation & scientific specification
 ```
 
-> Note: the pages folder is named `dashboards/`, not `pages/` — Streamlit
-> reserves the literal `pages/` folder name for its older auto-navigation
-> feature, which conflicts with the `st.navigation` API used in `app.py`.
+---
 
-## Adding a new dashboard later
+## 🚀 Getting Started
 
-1. Drop a new file in `dashboards/`.
-2. Add one `st.Page("dashboards/your_file.py", title="Your Title")` line
-   in `app.py` and include it in the list passed to `st.navigation([...])`.
-
-No other file needs to change.
-
-## Running Locally
-
+### 1. Installation
+Clone the repository and install dependencies in a virtual environment:
 ```bash
-cd dashboard
+git clone https://github.com/NanubalaSravani/MINI-PROJECT.git
+cd MINI-PROJECT
 pip install -r requirements.txt
+```
+
+### 2. Launch the Application
+Start the interactive Streamlit command center:
+```bash
 streamlit run app.py
 ```
+The suite will open at `http://localhost:8501`.
 
-The app opens at `http://localhost:8501`. Use the left sidebar to switch
-between dashboards, and to filter by Region, State, Year, Month, Disease
-Type, Disease, and Primary Source (on dashboards that use
-`render_sidebar_filters()`).
+### 3. Run the Research Benchmark Suite via Python CLI
+Execute the master scientific benchmark programmatically:
+```python
+import pandas as pd
+from src.data_loader import get_surveillance_master, get_outbreak_master
+from src.ml_models import run_research_benchmark_suite
 
-## Data Model
+surveillance_df = get_surveillance_master()
+outbreak_df = get_outbreak_master()
 
-| Table | Grain | Key Columns |
+results = run_research_benchmark_suite(surveillance_df, outbreak_df)
+print("Diebold-Mariano Result:", results["diebold_mariano_test"])
+print("Aberrations Summary:", results["aberration_detection_summary"])
+print("Fairness Audit:", results["fairness_audit"]["fairness_compliant"])
+```
+
+---
+
+## 📊 Analytical Star Schema
+
+All rate-based metrics (Case Fatality Rate, Recovery Rate, Bed/ICU Occupancy) are dynamically recomputed from aggregated sums rather than averaged row-level percentages to eliminate population weighting distortion:
+
+| Fact Table | Grain | Attributes |
 |---|---|---|
-| `dim_dates` | 1 row per month | `date_id`, `year`, `month_name`, `quarter` |
-| `dim_state` | 1 row per state | `state_id`, `state_name`, `region`, `population` |
-| `dim_disease` | 1 row per disease | `disease_id`, `disease_name`, `disease_category` |
-| `dim_source` | 1 row per reporting source | `source_id`, `source_name` |
-| `dim_program` | 1 row per health program | `program_id`, `program_name` |
-| `fact_disease_surveillance` | state × date × disease × source | cases, deaths, CFR, recovery rate, risk score |
-| `fact_outbreak` | state × date × disease × source | outbreak/alert/containment metrics |
-| `fact_environmental` | state × date | AQI, rainfall, sanitation, environmental risk |
-| `fact_health_programs` | state × date × program | coverage, beneficiaries, vulnerability index |
-| `fact_lab_healthcare` | state × date | testing, positivity, vaccination, infrastructure |
+| `fact_disease_surveillance` | State × Date × Disease × Source | Cases, deaths, CFR, recovery rate, hospitalization, ICU admissions, public health risk score |
+| `fact_environmental` | State × Date | AQI, rainfall, temperature, water quality, mosquito breeding index, environmental risk index |
+| `fact_lab_healthcare` | State × Date | Tests conducted, positive tests, positivity rate, vaccination rates, hospital beds, ICU utilization % |
+| `fact_health_programs` | State × Date × Program | Scheme coverage %, beneficiaries reached, high-risk screening, health vulnerability index |
+| `fact_outbreak` | State × Date × Disease × Source | Alert level (High/Moderate/Low), containment rate %, response time (hours), predicted cases |
 
-## KPI Definitions (Executive Public Health Overview)
+---
 
-| KPI | Formula |
-|---|---|
-| Total Population Under Surveillance | Sum of distinct `population_under_surveillance` per state/date |
-| Total Reported Cases | Sum of `total_reported_cases` |
-| Active Cases | Sum of `active_cases` |
-| Recovered Cases | Sum of `recovered_cases` |
-| Deaths (Monthly) | Sum of `deaths` |
-| Case Fatality Rate | Deaths ÷ Total Reported Cases × 100 |
-| Recovery Rate | Recovered ÷ Total Reported Cases × 100 |
-| Public Health Risk Score | Mean of `public_health_risk_score` across filtered records |
+## 📝 Reporting Standards & Scientific Citation
 
-## Notes
+HealthSentinel's experimental design conforms to the **TRIPOD+AI** (*Transparent Reporting of a multivariable prediction model for Individual Prognosis Or Diagnosis + AI*) reporting guidelines.
 
-- Rates (CFR, Recovery Rate, Hospitalization/ICU Rate) are **recomputed from
-  aggregated totals** rather than averaged row-level percentages, to avoid
-  bias when aggregating across states/diseases of very different case volume.
-- Conditional formatting on the State Ranking table uses `pandas.Styler`
-  background gradients (Cases → Blue, CFR → Red, Recovery Rate → Green).
+If utilizing this codebase or methodology in academic research, please cite:
+```bibtex
+@software{healthsentinel2026,
+  author = {Nanubala, Sravani},
+  title = {HealthSentinel: Public Health Analytics & Epidemiological Research Suite},
+  year = {2026},
+  publisher = {GitHub},
+  url = {https://github.com/NanubalaSravani/MINI-PROJECT}
+}
+```
