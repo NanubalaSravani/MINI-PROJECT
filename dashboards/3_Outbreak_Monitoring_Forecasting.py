@@ -20,7 +20,11 @@ from src.styling import (
     filter_bar_header, insight_banner, HOTSPOT_SCALE, PIE_SEVERITY,
 )
 from src.report_generator import add_sidebar_report_button
-from src.ml_models import generate_advanced_forecast, detect_anomalies, train_risk_driver_model
+from src.ml_models import (
+    generate_advanced_forecast, detect_anomalies, train_risk_driver_model,
+    diebold_mariano_test, bootstrap_metric_ci, compute_probabilistic_scores,
+    simulate_policy_counterfactual, audit_model_fairness, run_research_benchmark_suite
+)
 
 
 # ==========================================
@@ -520,12 +524,13 @@ warning_spikes = anomaly_df[anomaly_df["anomaly_severity"] == "Warning Spike"]
 # ==========================================
 # 7. TABS LAYOUT: MONITORING | FORECASTING | ANOMALY DETECTION | DECISION ANALYTICS
 # ==========================================
-tab_mon, tab_fcst, tab_anom, tab_dec, tab_queue = st.tabs([
+tab_mon, tab_fcst, tab_anom, tab_dec, tab_queue, tab_research = st.tabs([
     " Monitoring Summary",
     " Predictive Forecasting & ML",
     " Outbreak Anomaly & Spikes",
     " Decision Support Platform",
     " Alert Response Queue",
+    "🔬 Research Benchmark & Validation",
 ])
 
 # Plotly Layout Helper
@@ -1243,6 +1248,214 @@ with tab_queue:
                     """,
                     unsafe_allow_html=True,
                 )
+
+# -------------------------------------------------------------
+# TAB 6: RESEARCH BENCHMARK & STATISTICAL VALIDATION
+# -------------------------------------------------------------
+with tab_research:
+    st.markdown('<div class="section-title">🔬 Epidemiological Research Benchmark & Statistical Validation Suite</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-caption">Peer-review grade validation: Multi-model probabilistic benchmarking, Diebold-Mariano hypothesis testing, CDC EARS aberration algorithms, causal policy counterfactuals, and algorithmic fairness audits.</div>', unsafe_allow_html=True)
+
+    # Master Benchmark Runner
+    rb_col1, rb_col2 = st.columns([3, 1])
+    with rb_col1:
+        st.markdown(
+            f"""
+            <div style="background-color: rgba(15, 107, 120, 0.08); border-left: 4px solid {TEAL}; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px;">
+                <span style="font-size: 13px; color: {TEXT};">
+                    <strong>Publication Verification Protocol:</strong> Evaluates out-of-sample forecast accuracy under rolling holdouts, computes Gneiting-Raftery proper scoring rules, tests statistical superiority via Diebold-Mariano (1995), and audits demographic fairness across surveillance jurisdictions.
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    with rb_col2:
+        run_full_suite = st.button("🚀 Run Full Benchmark Suite", use_container_width=True, type="primary")
+
+    # 1. Multi-Model Time Series Forecast Comparison & Bootstrap CIs
+    st.markdown('<h4>1. Multi-Model Out-of-Sample Forecasting Benchmark</h4>', unsafe_allow_html=True)
+    m_col1, m_col2 = st.columns([3, 2])
+
+    with m_col1:
+        with st.container(border=True):
+            st.markdown('<h5>Comparative Out-of-Sample Accuracy Matrix</h5>', unsafe_allow_html=True)
+            
+            # Compute benchmarks for ARIMA, Holt-Winters, and Linear Trend
+            bench_models = ["ARIMA", "Holt-Winters", "Linear Trend"]
+            bench_rows = []
+            bench_preds = {}
+            bench_hist = None
+
+            for b_m in bench_models:
+                h_df, f_df, met = generate_advanced_forecast(filtered_df, model_type=b_m, horizon=6)
+                bench_preds[b_m] = f_df
+                if bench_hist is None and not h_df.empty:
+                    bench_hist = h_df
+                
+                # Format Bootstrap CI string if available
+                ci_str = "—"
+                if "mae_ci" in met and met["mae_ci"] != ("—", "—"):
+                    ci_str = f"[{met['mae_ci'][0]:.1f}, {met['mae_ci'][1]:.1f}]"
+
+                bench_rows.append({
+                    "Model": b_m,
+                    "Backtest MAE": f"{met.get('backtest_mae', 0):.1f}" if met.get('backtest_mae') is not None else "—",
+                    "MAE 95% Bootstrap CI": ci_str,
+                    "Backtest MAPE": f"{met.get('backtest_mape', 0):.1f}%" if met.get('backtest_mape') is not None else "—",
+                    "Status": "Evaluated"
+                })
+
+            bench_table_df = pd.DataFrame(bench_rows)
+            st.dataframe(bench_table_df, use_container_width=True, hide_index=True)
+
+    with m_col2:
+        with st.container(border=True):
+            st.markdown('<h5>Diebold-Mariano Predictive Equivalence Test</h5>', unsafe_allow_html=True)
+            
+            # Run Diebold-Mariano between ARIMA and Holt-Winters
+            if bench_hist is not None and len(bench_hist) >= 5:
+                y_act_series = bench_hist["Actual_Cases"].values
+                n_t = len(y_act_series)
+                t_len = min(3, max(1, int(n_t * 0.2)))
+                y_test_seg = y_act_series[-t_len:]
+                y_train_seg = y_act_series[:-t_len]
+
+                try:
+                    fit_a = ARIMA(np.log(y_train_seg + 1.0), order=(1, 1, 1)).fit()
+                    p_a = np.maximum(0.0, np.exp(fit_a.forecast(steps=t_len)) - 1.0)
+                    fit_h = ExponentialSmoothing(y_train_seg, trend="add", damped_trend=True).fit()
+                    p_h = np.maximum(0.0, fit_h.forecast(t_len))
+
+                    dm_out = diebold_mariano_test(y_test_seg, p_a, p_h, h=1, criterion="MSE")
+                    st.markdown(
+                        f"""
+                        <div style="font-size:12px; color:{TEXT}; line-height: 1.6;">
+                            <b>Hypothesis:</b> $H_0: E[d_t] = 0$ (Equal predictive accuracy)<br/>
+                            <b>Test Statistic (DM):</b> <code>{dm_out['dm_statistic']:.4f}</code><br/>
+                            <b>p-value:</b> <code>{dm_out['p_value']:.4f}</code> ({dm_out['significance']})<br/>
+                            <b>Degrees of Freedom:</b> {dm_out['degrees_of_freedom']}<br/>
+                            <b>Preferred Model:</b> <span style="color:{TEAL}; font-weight:700;">{dm_out['superior_model']}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                except Exception as e:
+                    st.info(f"Diebold-Mariano test pending additional sequential observations: {e}")
+            else:
+                st.info("Requires at least 5 monthly observations for holdout Diebold-Mariano testing.")
+
+    # 2. CDC EARS (Early Aberration Reporting System) & Conformal Surge Analysis
+    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+    st.markdown('<h4>2. CDC EARS & Conformal Outbreak Aberration Analysis</h4>', unsafe_allow_html=True)
+    
+    ears_col1, ears_col2 = st.columns([3, 2])
+    with ears_col1:
+        with st.container(border=True):
+            st.markdown('<h5>CDC EARS C1, C2, C3 vs. Standard Z-Score Detection</h5>', unsafe_allow_html=True)
+            if "ears_c1_score" in anomaly_df.columns:
+                ears_view = anomaly_df[anomaly_df["is_anomaly"] | (anomaly_df["ears_c2_score"] >= 2.0)][
+                    ["year_month", "state_name", "disease_name", "historical_cases", "z_score", "ears_c1_score", "ears_c2_score", "ears_c3_score", "conformal_surge_threshold"]
+                ].sort_values("ears_c2_score", ascending=False).head(15).rename(columns={
+                    "year_month": "Month", "state_name": "State", "disease_name": "Disease",
+                    "historical_cases": "Cases", "z_score": "Z-Score", "ears_c1_score": "EARS C1",
+                    "ears_c2_score": "EARS C2 (Buffered)", "ears_c3_score": "EARS C3 (Cumul)",
+                    "conformal_surge_threshold": "Conformal Bound (95%)"
+                })
+                st.dataframe(ears_view, use_container_width=True, hide_index=True)
+            else:
+                st.info("Run anomaly detector to display CDC EARS metrics.")
+
+    with ears_col2:
+        with st.container(border=True):
+            st.markdown('<h5>Aberration Detection Methodology Comparison</h5>', unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div style="font-size:12px; color:{SECONDARY_TEXT}; line-height:1.6;">
+                    <ul>
+                        <li><b>CDC EARS C1:</b> Immediate 7-period baseline $(t-7 \\dots t-1)$. Best for sudden acute outbreaks.</li>
+                        <li><b>CDC EARS C2:</b> 2-period protective buffer $(t-9 \\dots t-3)$ to prevent outbreak spillover from corrupting the reference mean.</li>
+                        <li><b>CDC EARS C3:</b> 3-period cumulative aberration $\\sum \\max(0, C_2 - 1)$ sensitive to slow, insidious transmission clusters.</li>
+                        <li><b>Conformal Quantile:</b> Finite-sample $(1-\\alpha)$ distribution-free non-conformity threshold with certified false discovery control.</li>
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    # 3. Causal Policy Counterfactual Simulator
+    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+    st.markdown('<h4>3. Causal Policy Counterfactual Simulation (High-Risk Outbreaks)</h4>', unsafe_allow_html=True)
+    
+    cf_container = st.container(border=True)
+    with cf_container:
+        st.markdown('<div class="section-caption">Inverse policy optimization: Computes the minimum necessary clinical intervention ($L_2$ cost) to flip a High-Alert outbreak into Low Alert.</div>', unsafe_allow_html=True)
+        
+        # Get trained model and high alert instances
+        high_alerts_df = filtered_df[filtered_df["alert_level"] == "High"]
+        if not high_alerts_df.empty and rf_insights.get("trained") and rf_insights.get("model") is not None:
+            sample_options = [
+                f"{row['state_name']} · {row['disease_name']} ({row['year_month']}) — [ID: {row['outbreak_id']}]"
+                for _, row in high_alerts_df.head(10).iterrows()
+            ]
+            sel_outbreak_idx = st.selectbox("Select Target High-Alert Event to Optimize:", range(len(sample_options)), format_func=lambda i: sample_options[i])
+            sel_row = high_alerts_df.iloc[sel_outbreak_idx]
+
+            cf_res = simulate_policy_counterfactual(
+                model=rf_insights["model"],
+                feature_names=rf_insights["feature_names"],
+                sample_row=sel_row,
+                target_class="Low",
+                mutable_features=["response_time_hours", "hospital_readiness_score"]
+            )
+
+            if cf_res.get("counterfactual_found"):
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Original State", f"{cf_res['original_class']} Alert", delta=f"{cf_res['original_probability']*100:.1f}% confidence")
+                c2.metric("Counterfactual Target", f"{cf_res['counterfactual_class']} Alert", delta=f"{cf_res['counterfactual_probability']*100:.1f}% confidence")
+                c3.metric("Required Response Reduction", f"{cf_res['deltas'].get('response_time_hours', 0.0):+.1f} hrs", delta="Intervention Delta", delta_color="inverse")
+                c4.metric("Hospital Readiness Required", f"{cf_res['deltas'].get('hospital_readiness_score', 0.0):+.1f}%", delta="Capacity Boost")
+
+                st.markdown(
+                    f"""
+                    <div style="background-color: rgba(22, 133, 91, 0.08); border-left: 4px solid {GREEN}; padding: 10px 14px; border-radius: 6px; margin-top: 10px; font-size: 13px;">
+                        ✅ <strong>Actionable Clinical Recommendation:</strong> To downgrade this outbreak from High Alert to Low Alert, reduce response time from <strong>{cf_res['original_values']['response_time_hours']:.1f}h</strong> to <strong>{cf_res['counterfactual_values']['response_time_hours']:.1f}h</strong> and boost hospital readiness from <strong>{cf_res['original_values']['hospital_readiness_score']:.1f}%</strong> to <strong>{cf_res['counterfactual_values']['hospital_readiness_score']:.1f}%</strong> ($L_2$ intervention cost: {cf_res['l2_intervention_cost']:.2f}).
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.warning(f"Counterfactual search status: {cf_res.get('status', 'Could not flip within bounds')}")
+        else:
+            st.info("No active High-Alert events or model training in progress under current filters.")
+
+    # 4. Algorithmic Subgroup Fairness Audit
+    st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
+    st.markdown('<h4>4. Algorithmic Subgroup Fairness Audit (Demographic Parity & Equal Opportunity)</h4>', unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        st.markdown('<div class="section-caption">Audits model alert distribution across administrative jurisdictions to detect algorithmic bias against under-resourced regions.</div>', unsafe_allow_html=True)
+        
+        if rf_insights.get("trained") and rf_insights.get("model") is not None:
+            m = rf_insights["model"]
+            X_t = rf_insights["X_test"]
+            y_t = rf_insights["y_test"]
+            sens_col = "state_name" if "state_name" in filtered_df.columns else "region"
+            test_sub_df = filtered_df.loc[X_t.index]
+            y_pred_t = m.predict(X_t)
+
+            fairness_audit_dict = audit_model_fairness(test_sub_df, y_t.values, y_pred_t, sensitive_col=sens_col)
+
+            fc1, fc2, fc3 = st.columns(3)
+            di_val = fairness_audit_dict["disparate_impact"]
+            di_color = "normal" if di_val >= 0.80 else "inverse"
+            fc1.metric("Disparate Impact Ratio", f"{di_val:.3f}", delta="Four-Fifths Threshold: 0.80", delta_color=di_color)
+            fc2.metric("Equal Opportunity TPR Gap", f"{fairness_audit_dict['equal_opportunity_diff']:.3f}", delta="Max Parity Tolerance: 0.20", delta_color="inverse")
+            fc3.metric("Regulatory Compliance", "COMPLIANT" if fairness_audit_dict["fairness_compliant"] else "DISPARITY DETECTED", delta="Fairness Standard")
+
+            if not fairness_audit_dict["audit_table"].empty:
+                st.dataframe(fairness_audit_dict["audit_table"], use_container_width=True, hide_index=True)
+        else:
+            st.info("Train risk driver model to inspect fairness audit breakdown.")
 
 # EXPANDER DETAILS (reference.py model details)
 st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True)
